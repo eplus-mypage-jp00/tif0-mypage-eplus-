@@ -1,0 +1,1575 @@
+/*
+ * Copyright eplus inc. All Rights Reserved.
+ */
+(function($) {
+    var bachCheck = true;
+    // プラグイン定義
+    $.isBackCheck = function() {
+        return bachCheck;
+    };
+    $.allowBack = function () {
+        bachCheck = false;
+    }
+    $.denyBack = function () {
+        bachCheck = true;
+    }
+})(jQuery);
+/*************************************************/
+/* 郵便番号検索                                                                                   */
+/*************************************************/
+$(function(){
+    var u = new iipurasu.Util();
+    iipurasu.module.initialize();
+
+    $(".postBox").each(function(){
+        var $input = $("input", this),
+            $postSelect = $(".postSelect", this);
+        
+        var curVal = $input.val();
+        $input.on("keyup", function(e){
+            var zipCode = $("input[name=postalCode]").val();
+            if ( curVal == zipCode ) {
+                return false;
+            }
+            curVal = zipCode;
+            if ( zipCode.length != 7 ) {
+                $(".postSelect:visible").hide();
+                return false;
+            }
+            $.ajaxPost(contextpath + '/api/v1/Address/searchAddressQuery', {
+                postalCode : zipCode,
+            }).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+                var res = $.parseJSON(xhr.responseText);
+                var isSuccess = res.isSuccess;
+                if (isSuccess) {
+                    // 結果が1件以上の場合のみリストへ追加
+                    if (res.addressList != null && res.addressList.length > 0) {
+                        // 1件目は無条件で、その情報を反映させる
+                        var address = res.addressList[0];
+                        $(".postSelect").remove();
+                        $("div.postBox").append('<ul class="postSelect" style="display: none;"><li>選択してください</li><li><span class="postcode">' + (address.postalCode) + '</span><span class="prefecture">' + (address.prefectureNameKanji) + '</span><span class="address1">' + (address.shikuchosonNameKanji) + '</span><span class="address2">' + (address.choikiNameKanji) + '</span></li></ul>');
+                        // 2件目以上のリスト追加
+                        for(var i = 1; i < res.addressList.length; i++){
+                          var address = res.addressList[i];
+                          $("ul.postSelect").append('<li><span class="postcode">' + (address.postalCode) + '</span><span class="prefecture">' + (address.prefectureNameKanji) + '</span><span class="address1">' + (address.shikuchosonNameKanji) + '</span><span class="address2">' + (address.choikiNameKanji) + '</span></li>');
+                        }
+                        
+                        // 郵便番号リストクリック
+                        $(".postSelect li").on("click", function(){
+                            if($(".prefecture", this).length != 0){
+                                var prefecture = $(".prefecture", this).html(),
+                                option = $("select[name=prefectureCode] option"),
+                                address1 = $(".address1", this).html(),
+                                address2 = $(".address2", this).html();
+                                for(var i = 0; i < option.length; i++){
+                                    if($(option).eq(i).text() === prefecture){
+                                        $(option).eq(i).prop("selected", true);
+                                    }
+                                }
+                                $("input[name=shikuchoson]").val(address1 + address2);
+                                $("input[name=chomeBanchi]").val('');
+                                $("input[name=apartmentName]").val('');
+                                $(".postSelect").hide();
+                            }
+                        });
+                        // リストを表示
+                        $(".postSelect").show();
+
+                        setTimeout(function(){
+                            // 1秒後に郵便リスト以外をクリックした場合にリストを消すイベントを設定する
+                            $(document).on('click', function(event) {
+                                if (!$.contains($(".postSelect")[0], event.target)) {
+                                    $(".postSelect").hide();
+                                    $(document).off('click');
+                                }
+                            });
+                        },1000);
+                    }
+                }
+                else {
+                    // エラーの場合
+                    $.errorMsgBox(res.msgs[0].msg);
+                }
+            });
+        });
+
+        // 初期表示
+        $postSelect.hide();
+    });
+});
+
+/*************************************************/
+/* 電話番号認証ボタン制御                                                     */
+/*************************************************/
+(function($) {
+    // プラグイン定義
+    $.smsRequest = function(btnId, callbackOk, callbackError) {
+        $("#" + btnId).on("click", function () {
+            var mobileTelnum = $("input[name='mobileTelnum']").val();
+            $.ajaxPost(contextpath + '/api/v1/FTAuth/requestSMS', {
+                mobileTelnum : mobileTelnum
+            }).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+                var res = $.parseJSON(xhr.responseText);
+                if(res.isSuccess) {
+                    if (isNotEmpty(callbackOk)) { callbackOk(res); }
+                } else {
+                    if (isNotEmpty(callbackError)) { callbackError(res)};
+                }
+            });  
+        });
+    }
+    // 電話番号認証要求 プラグイン定義
+    $.callAuthRequest = function(callbackOk, callbackError) {
+        var mobileTelnum = $("input[name='mobileTelnum']").val();
+        $.ajaxPost(contextpath + '/api/v1/FTAuth/requestSMS', {
+            mobileTelnum : mobileTelnum
+        }).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+            var res = $.parseJSON(xhr.responseText);
+            if(res.isSuccess) {
+                if (isNotEmpty(callbackOk)) { callbackOk(res); }
+            } else {
+                if (isNotEmpty(callbackError)) { callbackError(res)};
+            }
+        });
+    }
+    // 電話番号認証ajax送信
+    $.ajaxPostCallAuth = function(uri, param, isAsync, errorCallback, clearErrorMsgAreaId) {
+
+        $.blockDisplay();
+        $.clearErrorMsgArea(uri);
+        if (clearErrorMsgAreaId) {
+            $.clearAllErrorMsgArea(clearErrorMsgAreaId);
+        }
+        
+        if ($cf.isEmpty(isAsync)) {
+            isAsync = false;
+        }
+
+        return $cf.ajaxPost(uri, param, isAsync)
+        .fail(function(data) {
+            try {
+                var res = $.parseJSON(data.responseText).msgs[0];
+                $.systemError(res.msg, data.status, res.code);
+            } catch (e) {
+                errorCallback(data, e);
+            }
+        })
+        .done(function(data, status, xhr) {
+            var res = xhr.responseJSON.msgs.length > 0 ? xhr.responseJSON.msgs[0] : null;
+            if (res) {
+                // GAタグ（メッセージ・メッセージID）の埋め込み
+                $('#gaMessageId').val(res.msgId);
+                $('#gaMessage').val(res.msg);
+                callGaTrackingFunction();
+            }
+        })
+        .always(function() {
+            $.unblockDisplay();
+        });
+    }
+
+    // 電話番号認証確認 プラグイン定義
+    $.checkCallAuthCommit = function(callbackOk, callbackError) {
+        var mobileTelnum = $("input[name='mobileTelnum']").val();
+        $.ajaxPostCallAuth(contextpath + '/api/v1/FTAuth/checkCallAuthCommit', {
+            mobileTelnum : mobileTelnum
+        }, "true" // 非同期処理
+        , callbackError
+        ).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+            var res = $.parseJSON(xhr.responseText);
+            if(res.isSuccess) {
+                if (isNotEmpty(callbackOk)) { callbackOk(res); }
+            } else {
+                if (isNotEmpty(callbackError)) { callbackError(res)};
+            }
+        });
+    }
+    // 電話番号認証キャンセル プラグイン定義
+    $.cancelCallAuth = function(callbackOk, callbackError) {
+        var mobileTelnum = $("input[name='mobileTelnum']").val();
+        $.ajaxPost(contextpath + '/api/v1/FTAuth/cancelCallAuth', {
+            mobileTelnum : mobileTelnum
+        }).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+            var res = $.parseJSON(xhr.responseText);
+            if(res.isSuccess) {
+                if (isNotEmpty(callbackOk)) { callbackOk(res); }
+            } else {
+                if (isNotEmpty(callbackError)) { callbackError(res)};
+            }
+        });
+    }
+    // 電話番号認証プラグイン定義
+    var callAuthMsgBox = function(callAuthInfo, callbackOk, checkCallAuthCommitFun, cancelCallAuthFun) {
+        var commit = false; // 2回目のコミットを防止するための処理
+        // 電話番号認証intervalオブジェクト
+        var callAuthInterval = null;
+        // 電話番号認証確認結果
+        var callAuthOk = false;
+        var waitTime = callAuthInfo.waitTime;
+        // 情報メッセージボックス
+        var _infoMsgBox = $('<div id="modal01">'
+                + '<div class="modalOverType">'
+
+                + '<div class="modalOverTypeHead"><span>電話番号認証</span></div>'
+                + '<div class="modalOverTypebody">'
+                + '  <p>電話番号認証のため、「認証電話番号へ発信」をタップし、電話をかけてください。</p>'
+                + '  <p style="color:#808080"><span style="font-size:12px">※発信してもオペレーターには繋がりません。</span></p>'
+                + '  <p style="color:#808080"><span style="font-size:12px">※電話が切れた後「通話中(着信中)」の画面を閉じると、次の画面へ遷移します。</span></p>'
+                + '  <p style="color:#808080"><span style="font-size:12px">※非通知設定や登録電話番号以外では認証が完了しません。認証が完了しない方は<a target="_blank" href="'
+                + callAuthInfo.link + '">こちら</a></span></p>'
+                + '  <div class="registerNumber">'
+                + '    <div class="registerNumberInner">'
+                + '      <div class="registerNumberHead">登録電話番号</div>'
+                + "      <div class='registerNumberBody'>" + callAuthInfo.mobileTelnum + "</div>"
+                + '    </div>'
+                + '  </div>'
+                + '  <div class="telButtonWrap">'
+                + '    <div class="telButton">'
+                + '      <a class="telButtonLink" id="callAuthAuthenticNumberLinkClick" href="tel:' + callAuthInfo.authenticNumber + '">'
+                + '        <span class="telButtonLabel">認証電話番号へ発信</span>'
+                + '        <span class="telButtonSmall" id="callAuthAuthenticNumber">' + callAuthInfo.authenticNumber + '</span>'
+                + '      </a>'
+                + '    </div>'
+                + '  </div>'
+                + '  <div class="countdown">'
+                + '    <div class="countdownInner">'
+                + '      残り<span id="callAuthWaittime" class="countdownSeconds">' + (callAuthInfo.waitTime + 1) + "</span>秒"
+                + '     </div>'
+                + '  </div>'
+                + '  <ul class="btnLink01 typeSmall aC"><li class="sizeS colorType03">'
+                + '    <a id="callAuthCancel" href="javascript:void(0);" class="btn ok">戻る</a>'
+                + '  </li></ul>'
+                + '</div>'
+
+                + '</div>'
+                + "</div>");
+
+        $(".ok", _infoMsgBox)
+            .unbind("click")
+            .click(function() {
+                commit = true; // 2回目のコミットを防止するための処理
+                $.colorbox.close();
+                clearTheInterval(); // setInterval()でセットしたタイマーを解除する
+                // 電話番号認証しないの場合、 電話番号認証をキャンセルできる
+                if (!callAuthOk) {
+                    // 電話番号認証をキャンセル
+                    cancelCallAuthFun(function(res){}, function(res){});
+                }
+                return false;
+        });
+        $.colorbox({inline:true, href:_infoMsgBox, fixed:true, onClosed: function(){}, overlayClose : false, escKey: false, scrolling: false});
+        var intervalSeconds = callAuthInfo.intervalSeconds ? Number(callAuthInfo.intervalSeconds) : 10;
+        var index = 0;
+        // setInterval()でセットしたタイマーを解除する
+        var clearTheInterval = function() {
+            if (callAuthInterval) {
+                clearInterval(callAuthInterval); // setInterval()でセットしたタイマーを解除する
+                callAuthInterval = null;
+            }
+        }
+        // 非同期通信後に戻る
+        var asyncCommitReturn = true;
+        // 電話番号認証確認
+        var commitCallAuth = function() {
+            // 2回目のコミットを防止するための処理
+            if (!asyncCommitReturn || commit) {
+                return;
+            }
+            asyncCommitReturn = false;
+            // 電話番号認証確認
+            checkCallAuthCommitFun(function(res){
+                asyncCommitReturn = true;
+                if (res.waitTime && res.waitTime >= 0) {
+                    waitTime = res.waitTime;
+                }
+                // 電話番号認証が成功の場合
+                if ("OK" === res.callAuthResult) {
+                    callAuthOk = true;
+                    clearTheInterval(); // setInterval()でセットしたタイマーを解除する
+                    // 送信
+                    if (callbackOk && !commit) { 
+                        commit = true; // 2回目のコミットを防止するための処理
+                        callbackOk();
+                    }
+                } else if ("NG" === res.callAuthResult) {
+                    clearTheInterval(); // setInterval()でセットしたタイマーを解除する
+                    // 電話番号認証が失敗の場合
+                    $.errorMsgArea(callAuthInfo.callAuthNgMessage, "errorMessageArea", "errorMessageArea");
+                    $.colorbox.close();
+                }
+                else {
+                    callAuthOk = false;
+                    if (res.waitTime <= 0) {
+                        // 着信しないの場合
+                        $.errorMsgArea(callAuthInfo.callAuthNotConfirmedMessage, "errorMessageArea", "errorMessageArea");
+                        $.colorbox.close();
+                    }
+                }
+            }, function(res, e){
+                asyncCommitReturn = true;
+                if(res.msgs && res.msgs[0] && res.msgs[0].msg) {
+                    clearTheInterval(); // setInterval()でセットしたタイマーを解除する
+                    $.errorMsgArea(res.msgs[0].msg , "errorMessageArea", "errorMessageArea");
+                    $.colorbox.close();
+                }
+            }
+            );
+        }
+
+        // 間隔で電話番号認証確認
+        callAuthInterval = setInterval(function() {
+            if (waitTime && waitTime <= 0) {
+                // 着信<a> TAG click解除
+                $("#callAuthAuthenticNumberLinkClick").attr("onclick", "return false;");
+                clearTheInterval(); // setInterval()でセットしたタイマーを解除する
+                // 最後にもう一度確認
+                if (index % intervalSeconds != 0) {
+                    commitCallAuth(); // 電話番号認証確認
+                }
+            }
+            // 間隔で電話番号認証確認
+            if (index % intervalSeconds == 0) {
+                commitCallAuth(); // 電話番号認証確認
+            }
+            index = index + 1;
+            if (waitTime >= 0) {
+                // 残りの秒を更新
+                $("#callAuthWaittime").text(waitTime);
+                waitTime = waitTime - 1;
+            }
+        }, 1000);
+    }
+    // 電話番号認証プラグイン定義
+    $.callAuthMsgBox = function(callAuthInfo, callbackOk) {
+        callAuthMsgBox(callAuthInfo, callbackOk, $.checkCallAuthCommit, $.cancelCallAuth);
+    };
+    // フォームを JSON に変換する
+    $.convertFormToJSON = function(form) {
+        const array = $(form).serializeArray();
+        const json = {};
+        $.each(array, function () {
+          json[this.name] = this.value || "";
+        });
+        return json;
+    }
+    // 電話番号認証登録
+    $.callAuthRegist = function(url, params, callbackOk, callbackError) {
+        $.ajaxPost(url, params).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+            var res = $.parseJSON(xhr.responseText);
+            if(res.isSuccess) {
+                if (isNotEmpty(callbackOk)) { callbackOk(res); }
+            } else {
+                if (isNotEmpty(callbackError)) { callbackError(res)};
+            }
+        });
+    }
+    // 電話番号認証
+    $.callAuthStart = function(callAuthInfo, callbackOk) {
+        callAuthMsgBox(callAuthInfo, callbackOk, function(callbackOk, callbackError) {
+            $.ajaxPostCallAuth(callAuthInfo.checkUrl, callAuthInfo.checkParams, "true" // 非同期処理
+                    , callbackError
+                    ).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+                        var res = $.parseJSON(xhr.responseText);
+                        if(res.isSuccess) {
+                            if (isNotEmpty(callbackOk)) { callbackOk(res); }
+                        } else {
+                            if (isNotEmpty(callbackError)) { callbackError(res)};
+                        }
+                    })
+                }, function(callbackOk, callbackError) {
+                    $.ajaxPost(callAuthInfo.cancelUrl, callAuthInfo.cancelParams).done(function(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages) {
+                        var res = $.parseJSON(xhr.responseText);
+                        if(res.isSuccess) {
+                            if (isNotEmpty(callbackOk)) { callbackOk(res); }
+                        } else {
+                            if (isNotEmpty(callbackError)) { callbackError(res)};
+                        }
+                    });
+                });
+    };
+})(jQuery);
+
+/*-----------------------------------------------------------------------------
+ Ajax,Submit関連
+-----------------------------------------------------------------------------*/
+
+/*******************************************************************************
+* プラグイン名   : ajaxPostForForm
+* 機能概要 : POSTでAPI呼び出しを行う。（FORMを指定可能）
+* 引数     : uri       : リクエストURI
+*           form :      フォーム名またはフォームオブジェクト
+*           param:      リクエストパラメータ
+*           isAsync   : 非同期処理を行う場合、true。デフォルト：false。
+*           clearErrorMsgAreaId : クリア対象のエラーメッセージID。エラーメッセージエリア毎削除したい場合のみ指定。
+* 戻値     : Promiseオブジェクト
+*******************************************************************************/
+(function($) {
+
+   $.ajaxPostForForm = function(uri, form, param, isAsync, clearErrorMsgAreaId) {
+
+       $.blockDisplay();
+       $.clearErrorMsgArea(uri);
+       if (clearErrorMsgAreaId) {
+           $.clearAllErrorMsgArea(clearErrorMsgAreaId);
+       }
+       
+       if ($cf.isEmpty(form)) {
+           form = $("#blankForm");
+       }
+       
+       if ($cf.isEmpty(param)) {
+           param = {};
+       }
+       
+       if ($cf.isEmpty(isAsync)) {
+           isAsync = false;
+       }
+       
+        // フォームのjQueryオブジェクト取得
+        var formObj;
+        if (typeof form == 'string') {
+            formObj = $('#' + form);
+        } else {
+            formObj = form;
+        }
+       
+        // フォームの内容を取得
+        // serializeArrayの戻り値は[{key: 'キーの名前', value: '値'}]という形式になっている
+        $(formObj.serializeArray()).each(function(i, v) {
+            param[v.name] = v.value;
+        });
+
+       try {
+           return $cf.ajaxPost(uri, param, isAsync)
+           .fail(function(data) {
+               var res = $.parseJSON(data.responseText).msgs[0];
+               $.systemError(res.msg, data.status, res.code);
+           })
+           .done(function(data, status, xhr) {
+               var res = xhr.responseJSON.msgs.length > 0 ? xhr.responseJSON.msgs[0] : null;
+               if (res) {
+                   // GAタグ（メッセージ・メッセージID）の埋め込み
+                   $('#gaMessageId').val(res.msgId);
+                   $('#gaMessage').val(res.msg);
+                   callGaTrackingFunction();
+               }
+           })
+           .always(function() {
+               $.unblockDisplay();
+           });
+       } catch (e) {
+           $.unblockDisplay();
+           $.systemError();
+       }
+   }
+   
+})(jQuery);
+
+/*******************************************************************************
+* プラグイン名   : ajaxPost
+* 機能概要 : POSTでAPI呼び出しを行う。
+* 引数     : uri       : リクエストURI
+*           param:      リクエストパラメータ
+*           isAsync   : 非同期処理を行う場合、true。デフォルト：false。
+*           clearErrorMsgAreaId : クリア対象のエラーメッセージID。エラーメッセージエリア毎削除したい場合のみ指定。
+* 戻値     : Promiseオブジェクト
+*******************************************************************************/
+(function($) {
+
+   $.ajaxPost = function(uri, param, isAsync, clearErrorMsgAreaId) {
+
+       $.blockDisplay();
+       $.clearErrorMsgArea(uri);
+       if (clearErrorMsgAreaId) {
+           $.clearAllErrorMsgArea(clearErrorMsgAreaId);
+       }
+       
+       if ($cf.isEmpty(isAsync)) {
+           isAsync = false;
+       }
+
+       try {
+           return $cf.ajaxPost(uri, param, isAsync)
+           .fail(function(data) {
+               var res = $.parseJSON(data.responseText).msgs[0];
+               $.systemError(res.msg, data.status, res.code);
+           })
+           .done(function(data, status, xhr) {
+               var res = xhr.responseJSON.msgs.length > 0 ? xhr.responseJSON.msgs[0] : null;
+               if (res) {
+                   // GAタグ（メッセージ・メッセージID）の埋め込み
+                   $('#gaMessageId').val(res.msgId);
+                   $('#gaMessage').val(res.msg);
+                   callGaTrackingFunction();
+               }
+           })
+           .always(function() {
+               $.unblockDisplay();
+           });
+       } catch (e) {
+           $.unblockDisplay();
+           $.systemError();
+       }
+   }
+
+})(jQuery);
+
+/*******************************************************************************
+* プラグイン名   : ajaxGet
+* 機能概要 : GETでAPI呼び出しを行う。
+* 引数     : uri       : リクエストURI
+*           param:      リクエストパラメータ
+*           isAsync   : 非同期処理を行う場合、true。デフォルト：false。
+*           clearErrorMsgAreaId : クリア対象のエラーメッセージID。エラーメッセージエリア毎削除したい場合のみ指定。
+* 戻値     : Promiseオブジェクト
+*******************************************************************************/
+(function($) {
+
+   $.ajaxGet = function(uri, param, isAsync, clearErrorMsgAreaId) {
+
+       $.blockDisplay();
+       $.clearErrorMsgArea(uri);
+       if (clearErrorMsgAreaId) {
+           $.clearAllErrorMsgArea(clearErrorMsgAreaId);
+       }
+
+       if ($cf.isEmpty(isAsync)) {
+           isAsync = false;
+       }
+
+       try {
+           return $cf.ajaxPost(uri, param, isAsync)
+           .fail(function(data) {
+               var res = $.parseJSON(data.responseText).msgs[0];
+               $.systemError(res.msg, data.status, res.code);
+           })
+           .done(function(data, status, xhr) {
+               var res = xhr.responseJSON.msgs.length > 0 ? xhr.responseJSON.msgs[0] : null;
+               if (res) {
+                   // GAタグ（メッセージ・メッセージID）の埋め込み
+                   $('#gaMessageId').val(res.msgId);
+                   $('#gaMessage').val(res.msg);
+                   callGaTrackingFunction();
+               }
+           })
+           .always(function() {
+               $.unblockDisplay();
+           });
+       } catch (e) {
+           $.unblockDisplay();
+           $.systemError();
+       }
+   }
+
+})(jQuery);
+
+/*******************************************************************************
+* プラグイン名   : blockDisplay, unblockDisplay
+* 機能概要 : 画面操作が行えないようブロックする。
+* 引数     : なし
+* 戻値     : なし
+*******************************************************************************/
+(function($) {
+
+    var blockCount = 0;
+    
+   $.blockDisplay = function() {
+       if (blockCount++ == 0) {
+           $.blockUI({ message: '', overlayCSS: { opacity: 0.0 } });
+       }
+       // console.log('blockDisplay:' + blockCount);
+   }
+
+   $.unblockDisplay = function() {
+       if (--blockCount <= 0) {
+           $.unblockUI();
+           blockCount = 0;
+       }
+       // console.log('unblockDisplay:' + blockCount);
+   }
+
+})(jQuery);
+
+/******************************************************************************
+ * プラグイン名 : systemError
+ * 機能概要     : システムエラー画面に遷移します。
+ * 引数         : message        : メッセージ
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+
+    // プラグイン定義
+    $.systemError = function(message, status, code) {
+        if (code == "OSSCFR0001") {
+            // トークンチェック例外の場合には業務エラー画面への遷移とする
+            return $.gyoumuError(message, status, code);
+        }
+        $("input[name='status']", $("#systemErorrForm")).val(status);
+        $("input[name='message']", $("#systemErorrForm")).val(message);
+        $("input[name='code']", $("#systemErorrForm")).val(code);
+        $.doSubmit($("#systemErorrForm"));
+    }
+})(jQuery);
+
+/******************************************************************************
+ * プラグイン名 : gyoumuError
+ * 機能概要     : 業務エラー画面に遷移します。
+ * 引数         : message        : メッセージ
+ * 　　　　　　　　         : status         : ステータス
+ * 　　　　　　　　         : code            : コード
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+
+    // プラグイン定義
+    $.gyoumuError = function(message, status, code) {
+        $("input[name='status']", $("#gyoumuErorrForm")).val(status);
+        $("input[name='message']", $("#gyoumuErorrForm")).val(message);
+        $("input[name='code']", $("#gyoumuErorrForm")).val(code);
+        $.doSubmit($("#gyoumuErorrForm"));
+    }
+})(jQuery);
+
+/******************************************************************************
+* 関数名   : doSubmit
+* 機能概要 : フォームをサブミットします。
+* 引数     : form                    : フォームのIDまたはフォームのjQueryオブジェクト
+*            options.action          : アクション
+*            options.op              : オペレーション識別子
+*            options.params          : 追加パラメータ(Map)
+*            nohistory               : 遷移元が更新系画面の場合にブラウザバック抑止要否（デフォルト:false)
+* 戻り値   : なし
+******************************************************************************/
+(function($) {
+
+   $.doSubmit = function(form, options, nohistory) {
+
+       $.blockDisplay();
+
+       if ($cf.isEmpty(form)) {
+           form = $("#blankForm");
+       }
+       
+       if (!nohistory) {
+           if (window.history) {history.replaceState($('#X-CLTFT-Token').val(),null, window.location.href);}
+       }
+       
+       $cf.doSubmit(form, options);
+
+   }
+
+})(jQuery);
+
+
+function _setForm(form, action, op, params) {
+
+    // フォームのjQueryオブジェクト取得
+    var formObj;
+    if (typeof form == 'string') {
+        formObj = $('#' + form);
+    } else {
+        formObj = form;
+    }
+
+    // フォームの属性にアクションを設定する
+    if ($cf.isNotEmpty(action)) {
+        formObj.attr("action", action);
+    }
+
+    // フォームにオペレーション識別子のHidden項目を追加する
+    if ($cf.isNotEmpty(op)) {
+        if (formObj.find(":input[name='op']").length > 0) {
+            formObj.find(":input[name='op']").val(op);
+        } else {
+            $("<input>")
+            .attr("type", "hidden")
+            .attr("name", "op")
+            .val(op)
+            .appendTo(formObj);
+        }
+    }
+
+    // 追加パラメータをHidden項目として追加する
+    if ($cf.isNotEmpty(params)) {
+        for (var name in params) {
+            var value = params[name];
+            if (formObj.find(":checkbox[name='" + name + "'],:radio[name='" + name + "']").length > 0) {
+
+                // チェックボックス、ラジオボタンの場合は値に該当するタグをチェックする
+                // 値に該当するタグが存在しないことまでは考慮しない
+                formObj.find("*[name='" + name + "'][value='" + value + "']").attr("checked", true);
+
+            } else if (formObj.find(":input[name='" + name + "']").length > 0 ||
+                    formObj.find("textarea[name='" + name + "']").length > 0 ||
+                    formObj.find("select[name='" + name + "']").length > 0) {
+
+                // その他input、テキストエリア、セレクトの場合は値を設定する
+                formObj.find("*[name='" + name + "']").val(value);
+
+            } else {
+
+                // 名前に該当するタグが見つからない場合はHidden項目を追加する
+                $("<input>")
+                .attr("type", "hidden")
+                .attr("name", name)
+                .val(value)
+                .appendTo(formObj);
+            }
+        }
+    }
+
+    // チェックボックスとラジオボタン未選択時に、空のリクエストパラメータを送信する
+    var processed = {};
+    var target = $(":checkbox,:radio", formObj);
+    target.filter(":checked").each(function() {
+        // 一つでもチェックがある項目の場合は処理済とみなす
+        var name = $(this).attr("name");
+        if($cf.isNotEmpty(name) && !(name in processed)) {
+            processed[name] = 'true';
+        }
+    });
+    target.not(":checked").each(function() {
+        var name = $(this).attr("name");
+        if($cf.isNotEmpty(name) && !(name in processed)) {
+            processed[name] = 'true';
+            
+            formObj.prepend($("<input type='hidden'>").attr("name", name).val(""));
+        }
+    });
+    
+    return formObj;
+}
+
+/*-----------------------------------------------------------------------------
+共通メッセージエリア
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+ * プラグイン名 : errorMsgArea
+ * 機能概要     : 共通エラーエリアにメッセージを表示します。共通エラーエリアがない場合は作成します。
+ *               共通エラーエリア：errorTxtクラスを持つエリア
+ * 引数         : message        : メッセージ
+ *               areaId         : 共通エラーエリアを包含する領域のidまたはjQueryオブジェクト
+ *               scrollAreaId   : スクロール位置を特定するidまたはjQueryオブジェクト
+ *               scrollFlag     : スクロールを実施するか否かのフラグ。(未指定の場合true)
+ *               specifyId      : メッセージを特定するID。Ajax結果のメッセージの場合はURIを指定する。
+ *               escapeFlag     : メッセージエスケープする場合true、しない場合false(未指定の場合true)
+ * オプション   : なし
+ ******************************************************************************/
+/******************************************************************************
+ * プラグイン名 : clearErrorMsgArea
+ * 機能概要  : errorMsgAreaで追加したメッセージを削除します。
+ * 引数      : specifyId      : 削除対象のメッセージを特定するID。Ajaxの呼び出し時の場合はURIを指定する。
+ * オプション   : なし
+ ******************************************************************************/
+/******************************************************************************
+ * プラグイン名 : clearAllErrorMsgArea
+ * 機能概要  : メッセージエリアを削除します。
+ * 引数      : areaId      : 共通エラーエリアを包含する領域のidまたはjQueryオブジェクト
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+    
+    // 共通エラーエリアを示すクラス名
+    var _errorTxtClass = "errorTxt";
+    
+    // 本プラグインで作成した共通エラーエリアに付与されるクラス名
+    var _tempErrorAreaClass = "generated-error-area";
+    
+    // 本プラグインで作成したspan要素に付与されるクラス名
+    var _tempErrorAreaSpan = "generated-error-span";
+    
+    // 共通エラーエリア
+    var _errorArea = $("<p class='" + _errorTxtClass + " " + _tempErrorAreaClass + "'></p>");
+
+    $.errorMsgArea = function(message, areaId, scrollAreaId, scrollFlag, specifyId, escapeFlag) {
+        if (!message) {
+            console.warn("エラーメッセージが設定されていません。");
+            return;
+        }
+        
+        // HTMLエスケープ
+        if (escapeFlag == false) {
+            var escMessage = $('<div />').append(message).html();
+        } else {
+            var escMessage = $('<div />').text(message).html();
+        }
+        
+        var spanClass = createSpanClassName(specifyId);
+                
+        var $outerAreaObj;
+        var $msgAddAreaObj;
+        if (areaId) {
+            if (typeof areaId == 'string') {
+                $outerAreaObj = $('#' + areaId).parent();
+                $msgAddAreaObj = $('#' + areaId);
+            } else {
+                $outerAreaObj = $(areaId);
+            }
+        }
+        if ($outerAreaObj == null || $outerAreaObj == undefined) {
+            $outerAreaObj = $('body');
+        }
+        var $msgAreaObj = $outerAreaObj.find('[class^="' + _errorTxtClass + '"]:first');
+        
+        if ($msgAreaObj && $msgAreaObj.size() != 0) {
+            // すでにerrorTxtクラスを持つタグが存在する場合、メッセージ追加を行う
+            var spanObj = $msgAreaObj.find('span');
+            if (spanObj.size() != 0) {
+                // 既に同じ文言が存在する場合、エラー解消時に削除できるようクラスの付与のみ行う
+                var addMsgFlag = true;
+                $.each(spanObj, function(idx, value) {
+                    if (value && value.innerText == message) {
+                        value.classList.add(spanClass);
+                        addMsgFlag = false;
+                    }
+                });
+                // 同じ文言が存在しなければ追加
+                if (addMsgFlag) {
+                    if ($msgAreaObj.hasClass(_errorTxtClass)) {
+                        $(spanObj[spanObj.size()-1]).after("<span class='" + spanClass + "'>" + escMessage + "</span>");
+                    } else {
+                        $(spanObj[spanObj.size()-1]).parent().after("<p class='" + spanClass + "'><span><br/>" + escMessage + "</span></p>");
+                    }
+                }
+            } else {
+                if ($msgAreaObj.hasClass(_errorTxtClass)) {
+                    $msgAreaObj.append("<span class='" + spanClass + "'>" + escMessage + "</span>");
+                } else {
+                    if ($msgAreaObj.children('*').length > 0) {
+                        $msgAreaObj.append("<p class='" + spanClass + "'><span><br/>" + escMessage + "</span></p>");
+                    } else {
+                        $msgAreaObj.append("<p class='" + spanClass + "'><span>" + escMessage + "</span></p>");
+                    }
+                }
+            }
+        } else {
+            // errorTxtクラスを持つタグが存在しない場合、共通エラーエリアごとメッセージを追加する
+            var $errorArea = _errorArea.clone().append("<span class='" + spanClass + "'>" + escMessage + "</span>");
+            if ($msgAddAreaObj) {
+                $msgAddAreaObj.after($errorArea);
+            } else {
+                $outerAreaObj.prepend($errorArea);
+            }
+        }
+        
+        if (scrollFlag !== false) {
+            // スクロールエリアIDが指定されている場合、エリアIDの位置までスクロール
+            if(scrollAreaId){
+                var scrollAreaObj;
+                if (typeof scrollAreaId == 'string') {
+                    scrollAreaObj = $('#' + scrollAreaId);
+                } else {
+                    scrollAreaObj = scrollAreaId;
+                }
+                var scrollTop = scrollAreaObj.offset().top;
+                window.scrollTo(0,scrollTop);
+            }else{
+                // メッセージ表示位置にスクロール
+                var $scrollArea = $msgAreaObj.length > 0 ? $msgAreaObj : $outerAreaObj;
+                window.scrollTo(0, $outerAreaObj.offset().top - headerHeight);
+                // $('html,body').scrollTop(0);
+            }
+        }
+    }
+    
+    $.clearErrorMsgArea = function(specifyId) {
+        var spanClass = createSpanClassName(specifyId);
+        
+        $('.' + spanClass).remove();
+        
+        // 追加した共通エラーエリア内にメッセージが残っていなければ、共通エラーエリア自体も削除する。
+        if($('.' + _tempErrorAreaClass).length != 0
+                && $('.' + _tempErrorAreaClass).find('span').length == 0) {
+            $('.' + _tempErrorAreaClass).remove();
+        }
+        
+    }
+    
+    $.clearAllErrorMsgArea = function(areaId) {
+        
+        var $outerAreaObj;
+        if (areaId) {
+            if (typeof areaId == 'string') {
+                $outerAreaObj = $('#' + areaId).parent();
+            } else {
+                $outerAreaObj = $(areaId);
+            }
+        }
+        if ($outerAreaObj == null || $outerAreaObj == undefined) {
+            $outerAreaObj = $('body');
+        }
+        var $msgAreaObj = $outerAreaObj.find('[class^="' + _errorTxtClass + '"]:first');
+        
+        if ($msgAreaObj) {
+            $msgAreaObj.remove();
+        }
+    }
+    
+    function createSpanClassName(specifyId) {
+        var spanClass = _tempErrorAreaSpan;
+        if (specifyId) {
+            var specifyIdStr = specifyId.replace( /\//g , "-" ); // URIが入力された場合のためにスラッシュを変換
+            spanClass = _tempErrorAreaSpan + '_' + specifyIdStr;
+        }
+        return spanClass;
+    }
+    
+})(jQuery);
+
+/*-----------------------------------------------------------------------------
+ダイアログ
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+ * プラグイン名 : infoMsgBox
+ * 機能概要     : 情報メッセージボックスを表示します。
+ * 引数         : message        : メッセージ
+ *               callbackOk     : 閉じるボタン押下時のコールバック関数
+ *               buttonName     : ボタンに表示する文字列(未指定の場合は"閉じる")
+ *               option.direct  : trueの場合、pタグで括らないで直接出力する。デフォルトはfalse。  
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+
+    // プラグイン定義
+    $.infoMsgBox = function(message, callbackOk, buttonName, colorType, options) {
+        if (isEmpty(colorType)) {
+            colorType = "colorType03";
+        }
+
+        // 情報メッセージボックス
+        var _infoMsgBox = $("<div id='modal01'>"
+                + "<p class='message' style='word-break: break-all'></p>"
+                + "<ul class='btnLink01 typeSmall aC'>"
+                + "<li class='sizeS "
+                + colorType
+                + "'><a href='javascript:void(0);' class='btn ok'>閉じる</a><li>"
+                + "</ul>"
+                + "</div>");
+        
+        options = $.extend({
+            direct: false,
+        }, options);
+
+        if (options.direct) { 
+            $(".message", _infoMsgBox).replaceWith(message);
+        } else {
+            $(".message", _infoMsgBox).html(message);
+        }
+        if(isNotEmpty(buttonName)){
+            $(".btn", _infoMsgBox)
+            .html(buttonName);
+        }
+        $(".ok", _infoMsgBox)
+            .unbind("click")
+            .click(function() {
+                $.colorbox.close();
+                return false;
+            });
+        $.colorbox({inline:true, href:_infoMsgBox, fixed:true, onClosed: callbackOk});
+    }
+})(jQuery);
+
+/******************************************************************************
+ * プラグイン名 : errorMsgBox
+ * 機能概要     : エラーメッセージボックスを表示します。
+ * 引数         : message        : メッセージ
+ *                callbackOk     : 閉じるボタン押下時のコールバック関数
+ *                buttonName     : ボタンに表示する文字列(未指定の場合は"閉じる")
+ *               option.direct  : trueの場合、pタグで括らないで直接出力する。デフォルトはfalse。  
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+
+    // エラーメッセージボックス
+    var _errorMsgBox = $("<div id='modal01'>"
+            + "<p class='message' style='word-break: break-all'></p>"
+            + "<ul class='btnLink01 typeSmall aC'>"
+            + "<li class='sizeS colorType03'><a href='javascript:void(0);' class='btn ok'>閉じる</a><li>"
+            + "</ul>"
+            + "</div>");
+
+    // プラグイン定義
+    $.errorMsgBox = function(message, callbackOk, buttonName, options) {
+        options = $.extend({
+            direct: false,
+        }, options);
+
+        if (options.direct) { 
+            $(".message", _errorMsgBox).replaceWith(message);
+        } else {
+            $(".message", _errorMsgBox).html(message);
+        }
+        if(isNotEmpty(buttonName)){
+            $(".btn", _errorMsgBox)
+            .html(buttonName);
+        }
+        $(".ok", _errorMsgBox)
+            .unbind("click")
+            .click(function() {
+                $.colorbox.close();
+                return false;
+            });
+        $.colorbox({inline:true, href:_errorMsgBox, fixed:true, onClosed: callbackOk});
+    }
+})(jQuery);
+
+/******************************************************************************
+ * プラグイン名 : confirmMsgBox
+ * 機能概要     : 確認メッセージボックスを表示します。
+ * 引数         : message        : メッセージ
+ *                callbackOk     : OKボタン押下時のコールバック関数
+ *                callbackCancel : キャンセルボタン押下時のコールバック関数
+ *               option.direct  : trueの場合、pタグで括らないで直接出力する。デフォルトはfalse。  
+ * オプション   : なし
+ ******************************************************************************/
+(function($) {
+
+    // 確認メッセージボックス
+    var _confirmMsgBox = $("<div id='modal01'>"
+                    + "<div class='modalClose'>"
+                    + "<a class='btn_close cancel' href='javascript:void(0);'>閉じる</a>"
+                    + "</div>"
+                    + "<p class='message' style='word-break: break-all'></p>"
+                    + "<ul class='btnLink01 listRow count2 typeSmall'>"
+                    + "<li class='sizeS colorType01'><button id='xxxx' class='ok' type='submit' onClick='javascript:void(0);'>OK</button></li>"
+                    + "<li class='sizeS colorType03'><a href='javascript:void(0);' class='btn_close no-scroll cancel'>キャンセル</a></li>"
+                    + "</ul>"
+                    + "</div>");
+
+    // プラグイン定義
+    $.confirmMsgBox = function(message, callbackOk, callbackCancel, options) {
+        options = $.extend({
+            direct: false,
+        }, options);
+
+        if (options.direct) { 
+            $(".message", _confirmMsgBox).replaceWith(message);
+        } else {
+            $(".message", _confirmMsgBox).html(message);
+        }
+        $(".ok", _confirmMsgBox)
+            .unbind("click")
+            .click(function() {
+                // ダイアログを閉じる際に、callbackCancelが実行される設定を解除する。
+                $.colorbox({onClosed:null});
+
+                if (isNotEmpty(callbackOk)) {
+                    callbackOk();
+                }
+                $.colorbox.close();
+                return false;
+            });
+        $(".cancel", _confirmMsgBox)
+            .unbind("click")
+            .click(function() {
+                $.colorbox.close();
+                return false;
+            });
+        $.colorbox({inline:true, href:_confirmMsgBox, fixed:true, onClosed:callbackCancel});
+    }
+})(jQuery);
+
+/*************************************************
+ * GAタグ向け情報取得
+ *************************************************/
+function getGaScreenId() {
+    if (!$cf.isEmpty($("#gaScreenIdForErr").val())) {
+        return $("#gaScreenIdForErr").val();
+    }
+    
+    return $("#gaScreenId").val();
+}
+
+function getGaScreenTitle() {
+    return $("#gaScreenTitle").val();
+}
+
+function getGaEditMode() {
+    return $("#gaEditMode").val();
+}
+
+function getGaMessageId() {
+    if (!$cf.isEmpty($("#gaMessageIdForErr").val())) {
+        return $("#gaMessageIdForErr").val();
+    }
+    return $("#gaMessageId").val();
+}
+
+function getGaMessage() {
+    if (!$cf.isEmpty($("#gaMessageForErr").val())) {
+        return $("#gaMessageForErr").val();
+    }
+    return $("#gaMessage").val();
+}
+
+/*************************************************
+ * GAトラッキング関数呼出し
+ *************************************************/
+function callGaTrackingFunction() {
+    try {
+        reloadGaTracking();
+    } catch (e) {
+        console.log(e);
+    }
+}
+
+/*-----------------------------------------------------------------------------
+共通
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+* 関数名   : isEmpty
+* 機能概要 : 値が空かどうかをチェックします。
+* 引数     : value : 値
+* 戻り値   : true:undefined、null、"" false:その他
+******************************************************************************/
+function isEmpty(value) {
+  if (value != void 0 && value != null && value != "") {
+      return false;
+  }
+  return true;
+};
+
+/******************************************************************************
+* 関数名   : isNotEmpty
+* 機能概要 : 値が空でないかどうかをチェックします。
+* 引数     : value : 値
+* 戻り値   : true:なんらかの値が設定されている場合 false:その他
+******************************************************************************/
+function isNotEmpty(value) {
+  return !(isEmpty(value));
+};
+
+
+/*-----------------------------------------------------------------------------
+文字列操作
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+* 関数名   : padLeft
+* 機能概要 : 文字列の先頭に指定された文字を指定された文字数になるまで付加します。
+* 引数     : str     : 文字列
+*            length  : 文字列長
+*            padChar : 付加する文字(1文字)
+* 戻り値   : 付加後の文字列
+******************************************************************************/
+function padLeft(str, length, padChar) {
+  return _pad(str, length, padChar, true);
+}
+
+/******************************************************************************
+* 関数名   : padRight
+* 機能概要 : 文字列の末尾に指定された文字を指定された文字数になるまで付加します。
+* 引数     : str     : 文字列
+*            length  : 文字列長
+*            padChar : 付加する文字(1文字)
+* 戻り値   : 付加後の文字列
+******************************************************************************/
+function padRight(str, length, padChar) {
+  return _pad(str, length, padChar, false);
+}
+
+/******************************************************************************
+* 関数名   : _pad
+* 機能概要 : 文字列の先頭または末尾に指定された文字を指定された文字数になるまで
+*            付加します。
+* 引数     : str     : 文字列
+*            length  : 文字列長
+*            padChar : 付加する文字(1文字)
+*            left    : true:先頭 false:末尾
+* 戻り値   : 付加後の文字列
+******************************************************************************/
+function _pad(str, length, padChar, left) {
+
+  var result = str + "";
+
+  // 文字列が空の場合は空文字を設定
+  if (isEmpty(result)) {
+      result = "";
+  }
+
+  // 付加する文字が指定されていないまたは2文字以上の場合は
+  // 文字列をそのまま返す
+  if (isEmpty(padChar) || padChar.length > 1) {
+      return result;
+  }
+
+  // 文字列が文字列長以上の場合はそのまま返す
+  if (result.length >= length) {
+      return result;
+  }
+
+  // 付加する文字列を生成
+  var pad = ""
+  for (var i = 0; i < length - result.length; i++) {
+      pad += padChar;
+  }
+
+  // 文字列に付加文字列を付加
+  if (left) {
+      result = pad + result;
+  } else {
+      result = result + pad;
+  }
+
+  return result;
+}
+
+
+/*-----------------------------------------------------------------------------
+日付
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+* 関数名   : formatDate
+* 機能概要 : 日付オブジェクトを指定されたフォーマットで文字列に変換します。
+*            使用できる書式は以下のとおりです。
+*              yyyy : 年
+*              MM   : 月
+*              dd   : 日
+*              HH   : 時
+*              mm   : 分
+*              ss   : 秒
+*              SSS  : ミリ秒
+* 引数     : date   : 日付オブジェクト
+*            format : フォーマット
+* 戻り値   : 日付(文字列)
+******************************************************************************/
+function formatDate(date, format) {
+
+  if (isEmpty(date)) {
+      return null;
+  }
+
+  var result = format;
+
+  // 年
+  if (result.indexOf("yyyy") > -1) {
+      result = result.replace(/yyyy/, date.getFullYear());
+  }
+  // 月
+  if (result.indexOf("MM") > -1) {
+      result = result.replace(/MM/, padLeft(date.getMonth() + 1, 2, "0"));
+  }
+  // 日
+  if (result.indexOf("dd") > -1) {
+      result = result.replace(/dd/, padLeft(date.getDate(), 2, "0"));
+  }
+  // 時
+  if (result.indexOf("HH") > -1) {
+      result = result.replace(/HH/, padLeft(date.getHours(), 2, "0"));
+  }
+  // 分
+  if (result.indexOf("mm") > -1) {
+      result = result.replace(/mm/, padLeft(date.getMinutes(), 2, "0"));
+  }
+  // 秒
+  if (result.indexOf("ss") > -1) {
+      result = result.replace(/ss/, padLeft(date.getSeconds(), 2, "0"));
+  }
+  // ミリ秒
+  if (result.indexOf("SSS") > -1) {
+      result = result.replace(/SSS/, padRight(date.getMilliseconds(), 3, "0"));
+  }
+
+  return result;
+}
+
+/******************************************************************************
+* 関数名   : parseDate
+* 機能概要 : 指定されたフォーマットで記述された日付を日付オブジェクトに変換します。
+*            使用できる書式はformatDate関数を参照してください。
+* 引数     : date   : 日付(文字列)
+*            format : フォーマット
+* 戻り値   : 日付オブジェクト(存在しない日付の場合はnull)
+******************************************************************************/
+function parseDate(date, format) {
+
+  var year = 1900;
+  var month = 1;
+  var day = 1;
+  var hour = 0;
+  var minute = 0;
+  var second = 0;
+  var milliSecond = 0;
+  var start;
+  var set = false;
+
+  if (isEmpty(date)) {
+      return null;
+  }
+
+  // 年
+  if ((start = format.indexOf("yyyy")) > -1) {
+      year = date.substring(start, start + 4) - 0;
+      set = true;
+  }
+  // 月
+  if ((start = format.indexOf("MM")) > -1) {
+      month = date.substring(start, start + 2) - 1;
+      set = true;
+  }
+  // 日
+  if ((start = format.indexOf("dd")) > -1) {
+      day = date.substring(start, start + 2) - 0;
+      set = true;
+  }
+  // 時
+  if ((start = format.indexOf("HH")) > -1) {
+      hour = date.substring(start, start + 2) - 0;
+      set = true;
+  }
+  // 分
+  if ((start = format.indexOf("mm")) > -1) {
+      minute = date.substring(start, start + 2) - 0;
+      set = true;
+  }
+  // 秒
+  if ((start = format.indexOf("ss")) > -1) {
+      second = date.substring(start, start + 2) - 0;
+      set = true;
+  }
+  // ミリ秒
+  if ((start = format.indexOf("SSS")) > -1) {
+      milliSecond = date.substring(start, start + 3) - 0;
+      set = true;
+  }
+
+  // 不正な書式の場合はnullを返す
+  if (!set) {
+      return null;
+  }
+
+  var result = new Date(year, month, day, hour, minute, second, milliSecond);
+
+  // 日付の存在チェック
+  if (year != result.getFullYear()) {
+      return null;
+  }
+  if (month != result.getMonth()) {
+      return null;
+  }
+  if (day != result.getDate()) {
+      return null;
+  }
+  if (hour != result.getHours()) {
+      return null;
+  }
+  if (minute != result.getMinutes()) {
+      return null;
+  }
+  if (second != result.getSeconds()) {
+      return null;
+  }
+  if (milliSecond != result.getMilliseconds()) {
+      return null;
+  }
+
+  return result;
+}
+
+/******************************************************************************
+* 関数名   : convertDateFormat
+* 機能概要 : 日付のフォーマットを変換します。
+*            使用できる書式はformatDate関数を参照してください。
+* 引数     : date         : 日付(文字列)
+*            beforeFormat : 変換前フォーマット
+*            afterFormat  : 変換後フォーマット
+* 戻り値   : 日付(文字列)
+******************************************************************************/
+function convertDateFormat(date, beforeFormat, afterFormat) {
+
+  var dateObj = parseDate(date, beforeFormat);
+  if (dateObj == null && parseDate(date, afterFormat) != null) {
+      return date
+  }
+
+  return formatDate(dateObj, afterFormat);
+}
+
+/******************************************************************************
+* 関数名   : getSystemDate
+* 機能概要 : システム日付を指定したフォーマットで取得します。
+* 引数     : format : 日付フォーマット(省略時はyyyyMMdd)
+* 戻値     : システム日付
+******************************************************************************/
+function getSystemDate(format) {
+
+  if (isEmpty(format)) {
+      format = "yyyyMMdd";
+  }
+  var now = new Date();
+
+  return formatDate(now, format);
+};
+
+
+/*-----------------------------------------------------------------------------
+数値
+-----------------------------------------------------------------------------*/
+
+/******************************************************************************
+* 関数名   : formatNumber
+* 機能概要 : 数値を指定されたフォーマットで文字列に変換します。
+*            使用できる書式は以下のとおりです。
+*              # : 数字(値が0の場合は表示しない)
+*              0 : 数字(値が0の場合は0を表示する)
+*              . : 小数点
+*              , : カンマ
+* 引数     : number : 数値
+*            format : フォーマット
+* 戻り値   : 数値(文字列)
+******************************************************************************/
+function formatNumber(number, format) {
+
+  var real, decimal;
+  var realFormat, decimalFormat;
+
+  // 数値を整数部と小数部に分解
+  var str = new String(number);
+  if (str.indexOf(".") > -1) {
+      // 小数点が2つ以上ある場合はそのまま返す
+      if (str.split(".").length != 2) {
+          return number;
+      }
+      real = str.split(".")[0];
+      decimal = str.split(".")[1];
+  } else {
+      real = str;
+      decimal = "";
+  }
+  // マイナス符号を取得
+  var minus = "";
+  if (real.substring(0, 1) == "-") {
+      minus = "-";
+      real = real.substring(1);
+  }
+  // 整数部と小数部に数値以外が含まれている場合はそのまま返す
+  if (!real.match(/^[0-9]*$/) || !decimal.match(/^[0-9]*$/)) {
+      return number;
+  }
+
+  // フォーマットを整数部と小数部に分解
+  if (format.indexOf(".") > -1) {
+      realFormat = format.split(".")[0];
+      decimalFormat = format.split(".")[1];
+  } else {
+      realFormat = format;
+      decimalFormat = "";
+  }
+
+  // 整数部の整形
+  var result = "";
+  for (var i = realFormat.length - 1; i >= 0; i--) {
+      var fmt = realFormat.substring(i, i + 1);
+
+      if (fmt != "#" && fmt != "0") {
+          // #,0以外の場合はそのまま出力
+          result = fmt + result;
+      } else {
+          // 次の桁の数字を取得
+          var digit = "";
+          if (real.length > 0) {
+              digit = real.substring(real.length - 1);
+              real = real.substring(0, real.length - 1);
+          }
+          if (isNotEmpty(digit)) {
+              result = digit + result;
+          } else {
+              result = fmt + result;
+          }
+      }
+  }
+  while (isNotEmpty(result) && !result.substring(0, 1).match(/[0-9]{1}/)) {
+      result = result.substring(1);
+  }
+
+
+  // 小数部の整形
+  if (isNotEmpty(decimalFormat)) {
+      result += ".";
+      for (var i = 0; i < decimalFormat.length; i++) {
+          var fmt = decimalFormat.substring(i, i + 1);
+
+          if (fmt != "#" && fmt != "0" && decimal.length > 0) {
+              // #,0以外の場合はそのまま出力
+              result += fmt;
+          } else {
+              // 次の桁の数字を取得
+              var digit = "";
+              if (decimal.length > 0) {
+                  digit = decimal.substring(0, 1);
+                  decimal = decimal.substring(1);
+              }
+              if (isNotEmpty(digit)) {
+                  result += digit;
+              } else {
+                  result += fmt;
+              }
+          }
+      }
+      while (isNotEmpty(result) && !result.substring(result.length - 1).match(/[0-9]{1}/)) {
+          result = result.substring(0, result.length - 1);
+      }
+  }
+
+  return minus + result;
+}
+
+/******************************************************************************
+* 関数名   : parseNumber
+* 機能概要 : 文字列の数値を数値に変換します。
+*            文字列が数値として不正なフォーマットの場合はnullを返します。
+* 引数     : number : 数値(文字列)
+* 戻り値   : 数値
+******************************************************************************/
+function parseNumber(number) {
+
+  if (isEmpty(number)) {
+      return null;
+  }
+
+  // 数値の書式でない場合はnullを返す
+  if (!number.match(/^-?[0-9,]*\.?[0-9]*$/)) {
+      return null;
+  }
+
+  // 数字、小数点、マイナス符号以外の文字を除去する
+  var result = number.replace(/[^0-9\.-]/g, "");
+
+  return new Number(result);
+}
+
+/******************************************************************************
+* 関数名   : passwordVisibilitySwitch
+* 機能概要 : パスワード入力欄の入力内容の可視化/不可視化を切り替えます。
+******************************************************************************/
+function passwordVisibilitySwitch() {
+    var passwordValue = document.getElementsByClassName("passwordInput")[0];
+    var visibilityIcon = document.getElementsByClassName("passwordVisibilityIcon-script")[0];
+    if (passwordValue.type === "password") {
+        passwordValue.type = "text";
+        visibilityIcon.className = "passwordVisibilityIcon passwordVisibilityIcon-eye-color passwordVisibilityIcon-position passwordVisibilityIcon-script fa-regular fa-eye";
+    } else {
+        passwordValue.type = "password";
+        visibilityIcon.className = "passwordVisibilityIcon passwordVisibilityIcon-eye-slash-color passwordVisibilityIcon-position passwordVisibilityIcon-script fa-regular fa-eye-slash";
+    }
+}
+
+/******************************************************************************
+* 関数名   : passwordConfVisibilitySwitch
+* 機能概要 : 確認用パスワード入力欄の入力内容の可視化/不可視化を切り替えます。
+******************************************************************************/
+function passwordConfVisibilitySwitch() {
+    var passwordValue = document.getElementsByClassName("passwordConfInput")[0];
+    var visibilityIcon = document.getElementsByClassName("passwordConfVisibilityIcon-script")[0];
+    if (passwordValue.type === "password") {
+        passwordValue.type = "text";
+        visibilityIcon.className = "passwordVisibilityIcon passwordVisibilityIcon-eye-color passwordConfVisibilityIcon-position passwordConfVisibilityIcon-script fa-regular fa-eye";
+    } else {
+        passwordValue.type = "password";
+        visibilityIcon.className = "passwordVisibilityIcon passwordVisibilityIcon-eye-slash-color passwordConfVisibilityIcon-position passwordConfVisibilityIcon-script fa-regular fa-eye-slash";
+    }
+}

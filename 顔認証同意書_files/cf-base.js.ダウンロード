@@ -1,0 +1,481 @@
+(function(window) {
+
+/***************
+ * 初期設定
+ ***************/
+// IEがajax通信をキャッシュしないように設定
+$.ajaxSetup ({
+    cache: false
+});
+    
+/***************
+ * 公開共通関数定義
+ ***************/
+var $cf = {
+    /*******************************************************************************
+     * 関数名   : init
+     * 機能概要 : セッション取得を行う。各画面の初期処理として必ず実行する。
+     * 引数     : isAsync : 非同期処理を行う場合、true。デフォルト：true。
+     * 戻値     : Promiseオブジェクト
+     *******************************************************************************/
+    init: function(isAsync) {
+        return $cf.ajaxGet(_globalProperties.webapi.sessionEnsureUrl, null, isAsync);
+    },
+
+    /*******************************************************************************
+     * 関数名   : ajaxGet
+     * 機能概要 : GETでAPI呼び出しを行う。
+     * 引数     : uri       : リクエストURI
+     *            parameter : リクエストパラメータ
+     *            isAsync   : 非同期処理を行う場合、true。デフォルト：true。
+     * 戻値     : Promiseオブジェクト
+     *******************************************************************************/
+    ajaxGet: function(uri, parameter, isAsync) {
+        return call(uri, parameter, 'GET', isAsync);
+    },
+
+    /*******************************************************************************
+     * 関数名   : ajaxPost
+     * 機能概要 : POSTでAPI呼び出しを行う。
+     * 引数     : uri       : リクエストURI
+     *           parameter : リクエストパラメータ
+     *           isAsync   : 非同期処理を行う場合、true。デフォルト：true。
+     * 戻値     : Promiseオブジェクト
+     *******************************************************************************/
+    ajaxPost: function(uri, parameter, isAsync) {
+        return call(uri, parameter, 'POST', isAsync);
+    },
+    
+    /*******************************************************************************
+     * 関数名   : ajaxDownload
+     * 機能概要 : Ajax通信でファイルダウンロードを行う。
+     * 引数     : uri       : ダウンロードURL
+     * 戻値     : Promiseオブジェクト
+     *******************************************************************************/
+    ajaxDownload: function(url) {
+        
+        var d = new $.Deferred;
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = "blob";
+        xhr.onload = function() {
+            
+            if (this.status != 200) {
+                d.reject(this.status);
+                return;
+            }
+            
+            var contentDisposition = this.getResponseHeader("Content-Disposition");
+            var filename = decodeURI(contentDisposition.match(/(filename\*=.*'(.+))|(filename="(.+)")/)[2]);
+            // Content-Disposition:attachment;filename*=utf-8''madeInInit_session.txt
+            window.URL = window.URL || window.webkitURL;
+
+            if (window.navigator.userAgent.toLowerCase().indexOf('trident') != -1) {
+                window.navigator.msSaveBlob(this.response, filename);
+            } else {
+
+                var a = document.createElement("a");
+                a.href = window.URL.createObjectURL(this.response);
+                a.target = "_blank";
+                a.download = filename;
+                
+                // firefoxはappendしないと動かない
+                var body = document.getElementsByTagName("body")[0];
+                body.appendChild(a);
+                
+                a.click();
+                
+                body.removeChild(a);
+                
+                d.resolve();
+            }
+        };
+        xhr.send();
+        
+        return d.promise();
+    },
+    
+    /*******************************************************************************
+     * 関数名   : ajaxUpload
+     * 機能概要 : Ajax通信でファイルアップロードを行う。
+     * 引数     : uri       : ダウンロードURL
+     *           data      : リクエストパラメータ
+     *           files     : アップロードするファイルの連想配列.キーにパラメータ名、値に[input要素/jQueryオブジェクト/Selector/Blob]の何れかを指定します.
+     *           isAsync   : 非同期処理を行う場合、true。デフォルト：true。
+     * 戻値     : Promiseオブジェクト
+     *******************************************************************************/
+    ajaxUpload: function(uri, parameter, files, isAsync) {
+        
+        var formdata = new FormData();
+        
+        if (files && files != null) {
+            $.each(files, function(key, value) {
+                
+                if (value instanceof Blob) {
+                    formdata.append(key, value)
+                } else {
+                    
+                    var fileList = $(value).get(0).files;
+                    
+                    if (fileList && fileList != null && fileList.length > 0) {
+                        for (var idx = 0; idx < fileList.length; idx++) {
+                            formdata.append(key, fileList[idx]);
+                        }
+                    }
+                }
+            });
+        }
+
+        formdata.append(_globalProperties.webapi.requestPartNameForParameterOnUpload, new Blob([JSON.stringify(parameter)], {
+            type: "application/json"
+        }));
+
+        var async = (isAsync === null || isAsync === undefined)? true : isAsync;
+        var defer = $.Deferred();
+
+        var options = createAjaxOptionsBase(defer);
+        $.extend(true, options, 
+                {
+                    url: uri,
+                    data: formdata,
+                    async: async,
+                    processData: false,
+                    contentType: false,
+                    type: 'POST',
+                });
+
+        $.ajax(options);
+        return defer.promise();
+    },
+    
+    /******************************************************************************
+     * 関数名   : doSubmit
+     * 機能概要 : フォームをサブミットします。
+     * 引数     : form                    : フォームのIDまたはフォームのjQueryオブジェクト
+     *            options.action          : アクション
+     *            options.op              : オペレーション識別子
+     *            options.params          : 追加パラメータ(Map)
+     * 戻り値   : なし
+     ******************************************************************************/
+    doSubmit: function (form, options) {
+
+        // オプションのデフォルト値を設定する
+        options = $.extend({
+            action: "",
+            op: "",
+            params: {},
+        }, options);
+
+        // 追加パラメータにトークンを登録
+        var $token = $('#' + _globalProperties.webapi.tokenHeaderKey);
+        options.params[$token.attr('name')] = $token.val();
+
+        // フォームの設定
+        var formObj = _setForm(form, options.action, options.op, options.params);
+
+        // フォームをサブミットする
+        formObj.get(0).submit();
+    },
+    
+    /******************************************************************************
+     * 関数名   : getContextPath
+     * 機能概要 : コンテキストパスを取得します。
+     * 引数     : なし
+     * 戻り値   : コンテキストパス("/contextname")
+     ******************************************************************************/
+    getContextPath: function() {
+        // 設定値を優先
+        if ($cf.isNotEmptyObject(_globalProperties) && $cf.isNotEmptyObject(_globalProperties.contextPath)) {
+            return _globalProperties.contextPath;
+        }
+        var path = "./";
+        var e = document.createElement("span");
+        e.innerHTML = '<a href="' + path + '" />';
+        url = e.firstChild.href;
+        var p = url.split('/');
+        return '/' + p[3];
+    },
+    
+    /******************************************************************************
+     * 関数名   : isEmptyObject
+     * 機能概要 : オブジェクトが空かどうかをチェックします。
+     * 引数     : obj                    : オブジェクト
+     * 戻り値   : true:undefined、null false:その他
+     ******************************************************************************/
+    isEmptyObject: function(obj) {
+        return $.isEmptyObject(obj);
+    },
+    
+    /******************************************************************************
+     * 関数名   : isNotEmptyObject
+     * 機能概要 : オブジェクトが空かどうかをチェックします。
+     * 引数     : obj                    : オブジェクト
+     * 戻り値   : true:その他 false:undefined、null
+     ******************************************************************************/
+    isNotEmptyObject: function(obj) {
+        return !$cf.isEmptyObject(obj);
+    },
+    
+    /******************************************************************************
+     * 関数名   : isEmpty
+     * 機能概要 : オブジェクト、文字列が空かどうかをチェックします。
+     * 引数     : obj                    : オブジェクト
+     * 戻り値   : true:undefined、null、"" false:その他
+     ******************************************************************************/
+    isEmpty: function(obj) {
+        return $cf.isEmptyObject(obj) || obj === "";
+    },
+    
+    /******************************************************************************
+     * 関数名   : isNotEmptyObject
+     * 機能概要 : オブジェクト、文字列が空かどうかをチェックします。
+     * 引数     : obj                    : オブジェクト
+     * 戻り値   : true:その他 false:undefined、null、""
+     ******************************************************************************/
+    isNotEmpty: function(obj) {
+        return !$cf.isEmpty(obj);
+    }
+    
+
+};
+
+/***************
+ * セッションIDを管理するための内部関数。
+ * セッションIDの保管にはcookieを使用する。LocalStorageではプロトコル（http/https）間で同じ領域を共有できないため。
+ ***************/
+var SessionManager = {
+    setSessionId: function(sessionId) {
+           if (typeof sessionId !== 'string') return;
+           if (!window.navigator.cookieEnabled) return;
+
+           document.cookie = _globalProperties.webapi.sessionHeaderKey + '=' + sessionId + "; path=/";
+       },
+       getSessionId: function() {
+           if (!window.navigator.cookieEnabled) return;
+
+           var sessionId = null;
+           var cookies = document.cookie.split('; ');
+           for (var i = 0; i < cookies.length; i++) {
+               var separatorIdx = cookies[ i ].indexOf('=');
+               var key = cookies[ i ].substr(0, separatorIdx);
+               var value = cookies[ i ].substr(separatorIdx + 1);
+               if (key === _globalProperties.webapi.sessionHeaderKey) {
+                   sessionId = value;
+                   break;
+               }
+           }
+           return sessionId;
+       }
+};
+
+/***************
+ * トークンを管理するための内部関数。
+ * トークンの保管にはcookieを使用する。LocalStorageではプロトコル（http/https）間で同じ領域を共有できないため。
+ ***************/
+var TokenManager = {
+    setToken: function(token) {
+           if (typeof token !== 'string') return;
+
+           // 返却されたトークンの値でhiddenタグを更新
+           var $token = $('#' + _globalProperties.webapi.tokenHeaderKey);
+           if ($token.size() > 0) {
+               var separatorIdx = token.indexOf('=');
+               $token.attr('name', token.substr(0, separatorIdx));
+               $token.val(token.substr(separatorIdx + 1));
+           }
+
+           if (!window.navigator.cookieEnabled) return;
+
+           document.cookie = _globalProperties.webapi.tokenHeaderKey + '=' + token + "; path=/";
+       },
+       getToken: function() {
+           // hiddenがあればそれを使う
+           var $token = $('#' + _globalProperties.webapi.tokenHeaderKey);
+           if ($token.size() > 0) {
+               return $token.attr('name') + '=' + $token.val();
+           }
+
+           if (!window.navigator.cookieEnabled) return;
+
+           var token = null;
+           var cookies = document.cookie.split('; ');
+           for (var i = 0; i < cookies.length; i++) {
+               var separatorIdx = cookies[ i ].indexOf('=');
+               var key = cookies[ i ].substr(0, separatorIdx);
+               var value = cookies[ i ].substr(separatorIdx + 1);
+               if (key === _globalProperties.webapi.tokenHeaderKey) {
+                   token = value;
+                   break;
+               }
+           }
+           return token;
+       }
+};
+
+function call(uri, parameter, type, isAsync) {
+
+    var async = (isAsync === null || isAsync === undefined)? true : isAsync;
+    var defer = $.Deferred();
+
+    var options = createAjaxOptionsBase(defer);
+    $.extend(true, options, 
+            {
+                url: uri,
+                async: isAsync,
+                type: type,
+                data: type == 'POST' ? JSON.stringify(parameter) : parameter,
+                contentType: type == 'POST' ? 'application/json; charset=UTF-8' : 'application/x-www-form-urlencoded'
+            });
+
+    $.ajax(options);
+    return defer.promise();
+}
+
+function createAjaxOptionsBase(defer) {
+
+    return {
+        beforeSend: function(xhr) {
+            if(_globalProperties.webapi.storeSessionIdToStorage) {
+                var sid = SessionManager.getSessionId();
+                if (sid) {
+                    xhr.setRequestHeader(_globalProperties.webapi.sessionHeaderKey, sid);
+                }
+            }
+            var token = TokenManager.getToken();
+            if (token) {
+                xhr.setRequestHeader(_globalProperties.webapi.tokenHeaderKey, token);
+            }
+            xhr.setRequestHeader(_globalProperties.webapi.useCookieHeaderKey, _globalProperties.webapi.useHttpSession);
+        },
+        statusCode: {
+            401: function(){
+                _globalProperties.commonPage.login();
+                return;
+            }
+        },
+        success: function(data, status, xhr) {
+            if(_globalProperties.webapi.storeSessionIdToStorage) {
+                var sid = xhr.getResponseHeader(_globalProperties.webapi.sessionHeaderKey);
+                if (sid) {
+                    SessionManager.setSessionId(sid);
+                }
+            }
+            
+            var token = xhr.getResponseHeader(_globalProperties.webapi.tokenHeaderKey);
+            if (token) {
+                TokenManager.setToken(token);
+            }
+
+            var infoMessages = [];
+            var warnMessages = [];
+            var errorMessages = [];
+            var hasWarnings = false;
+            var hasErrors = false;
+            if (data.msgs) {
+                data.msgs.forEach(function(e) {
+                    if (e.type === 'ERROR') {
+                        hasErrors = true;
+                        errorMessages.push(e.msg) ;
+                    } else if (e.type === 'WARN') {
+                        hasWarnings = true;
+                        warnMessages.push(e.msg) ;
+                    } else {
+                        infoMessages.push(e.msg) ;
+                    }
+                });
+            }
+
+            defer.resolve(data, status, xhr, infoMessages, hasWarnings, warnMessages, hasErrors, errorMessages);
+        },
+        error: defer.reject
+    };
+}
+
+function _setForm(form, action, op, params) {
+
+    // フォームのjQueryオブジェクト取得
+    var formObj;
+    if (typeof form == 'string') {
+        formObj = $('#' + form);
+    } else {
+        formObj = form;
+    }
+
+    // フォームの属性にアクションを設定する
+    if ($cf.isNotEmpty(action)) {
+        formObj.attr("action", action);
+    }
+
+    // フォームにオペレーション識別子のHidden項目を追加する
+    if ($cf.isNotEmpty(op)) {
+        if (formObj.find(":input[name='op']").length > 0) {
+            formObj.find(":input[name='op']").val(op);
+        } else {
+            $("<input>")
+            .attr("type", "hidden")
+            .attr("name", "op")
+            .val(op)
+            .appendTo(formObj);
+        }
+    }
+
+    // 追加パラメータをHidden項目として追加する
+    if ($cf.isNotEmpty(params)) {
+        for (var name in params) {
+            var value = params[name];
+            if (formObj.find(":checkbox[name='" + name + "'],:radio[name='" + name + "']").length > 0) {
+
+                // チェックボックス、ラジオボタンの場合は値に該当するタグをチェックする
+                // 値に該当するタグが存在しないことまでは考慮しない
+                formObj.find("*[name='" + name + "'][value='" + value + "']").attr("checked", true);
+
+            } else if (formObj.find(":input[name='" + name + "']").length > 0 ||
+                    formObj.find("textarea[name='" + name + "']").length > 0 ||
+                    formObj.find("select[name='" + name + "']").length > 0) {
+
+                // その他input、テキストエリア、セレクトの場合は値を設定する
+                formObj.find("*[name='" + name + "']").val(value);
+
+            } else {
+
+                // 名前に該当するタグが見つからない場合はHidden項目を追加する
+                $("<input>")
+                .attr("type", "hidden")
+                .attr("name", name)
+                .val(value)
+                .appendTo(formObj);
+            }
+        }
+    }
+
+    // チェックボックスとラジオボタン未選択時に、空のリクエストパラメータを送信する
+    var processed = {};
+    var target = $(":checkbox,:radio", formObj);
+    target.filter(":checked").each(function() {
+        // 一つでもチェックがある項目の場合は処理済とみなす
+        var name = $(this).attr("name");
+        if($cf.isNotEmpty(name) && !(name in processed)) {
+            processed[name] = 'true';
+        }
+    });
+    target.not(":checked").each(function() {
+        var name = $(this).attr("name");
+        if($cf.isNotEmpty(name) && !(name in processed)) {
+            processed[name] = 'true';
+            
+            formObj.prepend($("<input type='hidden'>").attr("name", name).val(""));
+        }
+    });
+    
+    return formObj;
+}
+
+window.$cf = $cf;
+
+})(window);
+
+(function() {
+    if (!window.navigator.cookieEnabled) {
+        _globalProperties.notice.onGrobalError('cookieを有効にしてください。');
+    }
+})();

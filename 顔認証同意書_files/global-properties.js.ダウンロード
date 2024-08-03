@@ -1,0 +1,30 @@
+var _globalProperties = {
+        /* コンテキストパスの設定（"/"始まり）*/
+        contextPath : ""
+    };
+    $.extend(_globalProperties, {
+        /* WebAPIに関連する設定 */
+        webapi: {
+            sessionHeaderKey: "X-CLTFT-Session",
+            tokenHeaderKey: "X-CLTFT-Token",
+            useCookieHeaderKey: "X-Use-Cookie",
+            sessionEnsureUrl: $cf.getContextPath() + "/api/v1/SessionEnsure",
+            requestPartNameForParameterOnUpload: "json-data",
+            useHttpSession: true,
+            storeSessionIdToStorage: false
+        },
+        
+        /* 警告に関する設定 */
+        notice: {
+            onGlobalError: function() {
+                window.alert(message);
+            }
+        },
+        
+        /* 共通ページに関する設定 */
+        commonPage: {
+            login: function() {
+                location.href = $cf.getContextPath();
+            }
+        }
+});

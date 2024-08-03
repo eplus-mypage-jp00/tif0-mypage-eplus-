@@ -1,0 +1,42 @@
+/*
+ * Copyright eplus inc. All Rights Reserved.
+ */
+.validatorTarget {
+    padding: 0 !important;
+    display: inline-block !important;
+}
+
+.passwordInputBox {
+    position: relative;
+}
+
+.passwordVisibilityIcon {
+    position: absolute;
+    transform: translateY(-50%);
+    cursor: default;
+    user-select: none;
+}
+
+.passwordVisibilityIcon-eye-color {
+    color: #808080;
+}
+
+.passwordVisibilityIcon-eye-slash-color {
+    color: #ababab;
+}
+
+.btnLink02.listRow.count4.colorType01 button, .btnLink02.listRow.count4 li.colorType01 button {
+    background: #000000 url(../../../../p/img/com_ic19.png) no-repeat 50% 50%;
+}
+
+.btnLink02.listRow.count4 li.colorType01 {
+    border-bottom: 4px solid #000000;
+    background: #000000;
+}
+
+@media only screen and (max-width: 767px) {
+    .btnLink02.listRow.count4.colorType01 button, .btnLink02.listRow.count4 li.colorType01 button {
+        background: #000000 url(../../../../p/img/com_ic19_sp.png) no-repeat 50% 50%;
+        background-size: 27px 27px;
+    }
+}

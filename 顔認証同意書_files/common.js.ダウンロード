@@ -1,0 +1,536 @@
+/*********************************************
+ * common.js
+ * -------------------------------------------
+ * @namespace
+ * - iipurasu
+ * @Util
+ * @constructor
+ * @module
+ * - rollover
+ * - tabletViewPort
+ * - smoothScroll
+ * - accordion
+ * - popup
+ * - checkbox
+ * - radiobtn
+ * - colorbox
+ * - fadePageTop
+ * @module(load)
+ * - equalHeight
+ * @requires
+ * - jquery.js
+*********************************************/
+
+var iipurasu = iipurasu || {};
+
+/* -------------------------------------------
+ * @Util
+ * @constructor
+------------------------------------------- */
+iipurasu.Util = function(){
+	this.ua = navigator.userAgent.toLowerCase();
+	this.version = navigator.appVersion.toLowerCase();
+	this.$w = $(window);
+	this.$d = $(document);
+	this.$h = $("html");
+	this.$b = $("body");
+	this.SMART_UA = ["iphone","ipad","android","windows phone"];
+	this.breakPoint1 = 768;
+};
+
+iipurasu.Util.prototype = {
+	/*
+	 * @method isMobile
+	 * @return {Boolean} UAに["iphone","android, mobile"]が含まれるか
+	 */
+	isMobile: function(){
+		var UA = {
+			iPhone: this.ua.indexOf("iphone") != -1,
+			AndroidMobile: this.ua.indexOf("android") != -1 && this.ua.indexOf("mobile") != -1,
+		}
+		return (UA.iPhone | UA.AndroidMobile) ? true : false;
+	},
+	/*
+	 * @method isRangeSP
+	 * @return {Boolean}
+	 */
+	isRangeSP: function(){
+		var winW = this.$w.width();
+		return (winW <= this.breakPoint1) ? true : false;
+	},
+	/*
+	 * @method isNotPC
+	 * @return {Boolean}
+	 */
+	isNotPC: function(){
+		var uaArray = new RegExp(this.SMART_UA.join("|"),"i");
+		return uaArray.test(this.ua);
+	},
+	/*
+	 * @method isTablet
+	 * @return {Boolean} UAに["ipad","android"]が含まれるか
+	 */
+	isTablet: function(){
+		var UA = {
+			iPad: this.ua.indexOf("ipad") != -1,
+			Android: this.ua.indexOf("android") != -1 && this.ua.indexOf("mobile") == -1
+		}
+		return (UA.iPad | UA.Android) ? true : false;
+	},
+	/*
+	 * @method isFontSizeCheck
+	 * @param {Function} callback
+	 * フォントサイズが変更したら　callback　を実行
+	 */
+	isFontSizeCheck: function(callback){
+		var HTML_FS_WATCH = $('<div id="fontSizeWatcher">&nbsp;</div>'),
+			CSS_OBJECT = {
+				display: "block",
+				visibility: "hidden",
+				position: "absolute",
+				top: "0",
+				padding: "0"
+			},
+			$elm,
+			interval = 500,
+			currentSize = 0;
+		
+		// 監視用HTMLを生成する
+		HTML_FS_WATCH.css(CSS_OBJECT).appendTo("body");
+		$elm = $("#fontSizeWatcher");
+		
+		// 要素の高さを取得
+		var getSize = function($elm){ return $elm.height(); };
+		
+		// 要素の高さを比較して、異なればcallbackを実行
+		var fontSizeCheck = function(){
+			var h = getSize($elm);
+			
+			if(h === currentSize){
+				return false;
+			} else {
+				currentSize = h;
+				callback();
+			}
+		};
+		setInterval(fontSizeCheck, interval);
+	},
+	/*
+	 * @method isWindowSizeCheck
+	 * @param {Function} callback
+	 * windowのリサイズ処理が完了したら　callback　を実行
+	 */
+	isWindowSizeCheck: function(callback){
+		var resize = false,
+				interval = 500;
+		
+		this.$w.bind("resize", function(){
+			// リサイズされている間は、何もしない
+			if(resize !== false){ clearTimeout(resize); }
+			
+			resize = setTimeout(function(){
+				callback();
+			}, interval);
+		});
+	}
+};
+
+/* -------------------------------------------
+ * @module
+------------------------------------------- */
+iipurasu.module = function(){
+	
+	var u = new iipurasu.Util();
+	
+	return {
+		/**
+		 * @method initialize
+		 * 初期化
+		 */
+		initialize: function(){
+			this.rollover();
+			this.tabletViewPort();
+			this.smoothScroll();
+			//this.equalHeight(true);
+			this.accordion();
+			this.popup();
+			this.checkbox();
+			//this.checkbox02();
+            //this.radiobtn();
+			//this.colorbox();
+			this.fadePageTop();
+		},
+		/**
+		 * @method rollover
+		 */
+		rollover: function(){
+			var $elm = $(".rollover"),
+					onSuffix = "on";
+			
+			if($elm.length === 0 || u.isMobile() || u.isTablet()){ return false; }
+			
+			var src = {
+				over: function($elm){return $elm.attr("src").replace(/^(.+)(\.[a-z]+)$/, "$1" + onSuffix + "$2");},
+				out: function($elm){return $elm.attr("src").replace(new RegExp("^(.+)" + onSuffix + "(\.[a-z]+)$" ), "$1$2");},
+				preload: function($elm){return $elm.attr("src").replace(/^(.+)(\.[a-z]+)$/, "$1" + onSuffix + "$2");}
+			};
+			
+			$elm.hover(
+				function(){$(this).attr("src", src.over($(this)));},
+				function(){$(this).attr("src", src.out($(this)));}
+			).each(
+				function(){$("<img>").attr("src", src.preload($(this)));}
+			);
+		},
+		/**
+		 * @method smartView
+		 */
+		tabletViewPort: function(){
+			var viewPoint = 1020;
+			if(u.isTablet()){
+				$("body").css("width", viewPoint + "px");
+				$("meta[name='viewport']").attr("content", "width=" + viewPoint + "px");
+			}
+		},
+		/**
+		 * @method smoothScroll
+		 */
+		smoothScroll: function(){
+			var $elm = $('a[href^="#"]').not('a[href="#"], .no-scroll'),
+					speed = 200,
+					easing = "swing";
+			
+			$elm.click(function(){
+				var href = $(this).attr("href"),
+						target = $(href),
+						$naviHeight = $("#headerFixed").outerHeight(),
+						position = target.offset().top,	
+						webkit = /webkit/;
+				
+				$("html, body").animate({
+					scrollTop: position
+				}, speed, easing);
+				return false;
+			});
+		},
+		/**
+		 * @method equalHeight
+		 * @param {Boolean} 文字可変に対応するかどうか
+		 */
+		equalHeight: function(fsCheck, wsCheck){
+			var className = ".equalHeight",
+				childBaseName = "equalChild",
+				cancelName = "sp-eqCancel",
+				$elm = $(className),
+				$children = $elm.children(),
+				$spChildren = $elm.not("." + cancelName).children(),// SP時に有効となる要素
+				winW = u.$w.width(),
+				fsCheck = fsCheck || false,
+				wsCheck = wsCheck || true,
+				spCheck = false;
+			
+			if($elm.length === 0 || $children.length < 2){ return false; }
+			
+			if(winW < u.breakPoint1){
+				spCheck = true;
+			}
+			
+			/* childBaseNameのグループ化 */
+			var grouping = function(w){
+				var $groupedChildren = $elm.find("*[class*=" + childBaseName + "]"),
+					classNames = {},groups = [];
+				
+				$groupedChildren.each(function(){
+					var splitClass = $(this).attr("class").split(" "),
+						splitClassNum = splitClass.length,
+						newClassName;
+					
+					for(var i = 0; i < splitClassNum; i++){
+						newClassName = splitClass[i].match(RegExp(childBaseName + "[a-z0-9,_,-]*", "i"));
+						
+						if(!newClassName){
+							continue;
+						} else {
+							newClassName.toString();
+							classNames[newClassName] = newClassName;
+						}
+					}
+				});
+				
+				// childBaseNameの格納
+				for(var c in classNames){
+					if(w < u.breakPoint1){
+						groups.push($elm.not("." + cancelName).find("." + c));// SP時にcancelNameを持つ要素を対象から外す
+					} else {
+						groups.push($elm.find("." + c));
+					}
+				}
+				return groups;
+			};
+			
+			/* 各要素の高さを揃える */
+			var equalHeight = function(elm){
+				var maxHeight = 0;
+				
+				elm.css("height", "auto");
+				
+				elm.each(function(){
+					if($(this).outerHeight() > maxHeight){
+						maxHeight = $(this).outerHeight();
+					}
+				});
+				return elm.outerHeight(maxHeight);
+			};
+			
+			/* init */
+			var init = function(){
+				var winW = u.$w.width(),
+					groups = grouping(winW);
+				
+				var eqAct = function(eqObj){
+					var h = [],
+						child = [],
+						maxHeight = 0,
+						top = 0;
+					
+					$.each(eqObj, function(){
+						var $group = $(this).not(":hidden");// 非表示要素に適用させない場合.not(":hidden")を付与
+						
+						$group.each(function(i){
+							$(this).css("height", "auto");
+							h[i] = $(this).outerHeight();
+							
+							if(top != $(this).position().top){
+								equalHeight($(child));
+								child = [];
+								top = $(this).position().top;
+							}
+							child.push(this);
+						});
+					});
+					if(child.length > 1){ equalHeight($(child)); }
+				}
+				// childBaseName要素の高さを揃える
+				eqAct(groups);
+				// 子要素の高さを揃える
+				if(winW < u.breakPoint1){
+					// SP時
+					eqAct($spChildren);
+					$("." + cancelName).children().css("height", "auto");
+					$("." + cancelName).find("*[class*=" + childBaseName + "]").css("height", "auto");
+				} else {
+					// PC時
+					eqAct($children);
+				}
+			};
+			
+			// 文字可変への対応可否
+			fsCheck ? u.isFontSizeCheck(init) : init();
+			//wsCheck ? u.isWindowSizeCheck(init) : init();
+		},
+		/**
+		 * @method popup
+		 */
+		popup: function(){
+			var $elm = $(".popupType a"),
+				name = "POPUP",
+				height = 600,
+				width = 1100,
+				toolbar = 0,
+				scrollbars = 1,
+				status = 0,
+				resizable = 1,
+				left = 0,
+				top = 0,
+				parameters,
+				center = true;
+			
+			if($elm.length === 0){ return false; }
+			
+			if(center){
+				top = (screen.height - height) / 2;
+				left = (screen.width - width) / 2;
+			}
+			
+			parameters = "height=" + height + ",width=" + width + ",toolbar=" + toolbar + ",scrollbars=" + scrollbars + ",status=" + status + ",resizable=" + resizable + ",left=" + left + ",screenX=" + left + ",top=" + top + ",screenY=" + top;
+			
+			$elm.click(function(){
+				window.open(this.href, name, parameters);
+				return false;
+			});
+		},
+		/**
+		 * @checkbox,radiobtn
+		 */
+		checkbox: function(){
+			//checkedだったら最初からチェックする
+            //クリックした要素にクラス割り当てる
+            
+            $('.inputCheck input').on('change', function(){
+                if($(this).prop('checked')) {
+                    if($('#check02').length) {
+                        $('.next').hide();
+                        $('.SubmitBtn').show();
+                        $('.SubmitBtn button').prop('disabled', false);
+                    }
+                } else {
+                    if ($('#check02').length) {
+                        $('.next').show();
+                        $('.SubmitBtn button').prop('disabled', true);
+                        $('.SubmitBtn').hide();
+                    }
+                }
+            });
+        },
+        radiobtn: function(){
+            var radio = $('.inputCheck02');
+            radio.find("input")
+            //checkedだったら最初からチェックする
+            .each(function(){
+                $(this).css({'opacity': '0'});
+                if($(this).prop('checked')) {
+                    $(this).next().addClass('checked');
+                }
+            });
+            //クリックした要素にクラス割り当てる
+            radio.find("input").change(function(){
+                
+                if($(this).prop("checked")){
+                    $(this).addClass("checked");
+                } else {
+                    $(this).removeClass("checked");
+                }
+            });         
+		},
+		/**
+		 * @method colorbox
+		 */
+		/* colorbox: function(){
+			$(function(){
+					if ($(".modalBox").hasClass('openType')) {
+							$.colorbox({inline:true, open:true, href:"#modal02", fixed:true});
+					}
+					$('.modalBtn').click(function() {
+						if ($(this).is(".socialType01")){
+							var $socialText = $(this).parents(".type02").find(".type01 p").html();
+							$(".modalBox").find(".socialName").html($socialText);
+						}
+						$.colorbox({inline:true, href:"#modal01", fixed:true});
+					});
+			});
+			$(".btn_close").click(function(){
+					parent.$.fn.colorbox.close(); return false;
+				});
+		}, */
+		/**
+		 * @method accordion
+		 */
+		accordion: function(config){	
+			
+			var $elm = $(".accordionBox");
+			
+			if ($elm.length === 0){ return false;}
+	
+			var c = $.extend({
+				switchClass: ".switch",
+				boxClass: ".detailsBox"
+			}, config);
+			
+			$elm.each(function(){
+			
+				var box = $(c.boxClass, this),
+						accordSwitch = $(c.switchClass, this);
+				
+				/* 開閉 */
+				var accordion = function(){
+					if (box.is(":hidden")){
+						box.slideToggle(400);
+						accordSwitch.toggleClass("open");
+					} else {
+						box.slideToggle(400);
+						accordSwitch.toggleClass("open");
+					};
+				};
+				
+				$(accordSwitch).click(function(){
+					accordion();
+					iipurasu.module.equalHeight();
+				});
+			
+			});
+		},
+		/**
+		 * @method fadePageTop
+		 */
+		fadePageTop: function(){
+			
+			var $elm = $("#pageTop"),
+					fadePoint = 300,
+					timer = null;
+			
+			if($elm.length === 0){ return false; }
+				u.$w.on("scroll",function(){
+					clearTimeout(timer);
+					timer = setTimeout(function(){
+						if ($(this).scrollTop() > fadePoint) {
+							$elm.fadeIn();
+						} else {
+							$elm.fadeOut();
+						}
+					}, 300);
+				});
+			}
+			
+		};
+}();
+
+/*
+$(function(){
+	var u = new iipurasu.Util();
+	iipurasu.module.initialize();	
+	
+	// 郵便番号検索
+	$(".postBox").each(function(){
+		
+		var $input = $("input", this),
+				$postSelect = $(".postSelect", this);
+		
+		// 郵便番号リストクリック
+		$("li", $postSelect).on("click", function(){
+			
+			var prefecture = $(".prefecture", this).html(),
+					option = $("select[name=prefecture] option"),
+					address1 = $(".address1", this).html(),
+					address2 = $(".address2", this).html();
+			
+			for(var i = 0; i < option.length; i++){
+				if($(option).eq(i).text() === prefecture){
+					$(option).eq(i).prop("selected", true);
+				}
+			}
+			
+			$("select[name=prefecture] option:first-child").val(prefecture);
+			$("input[name=address1]").val(address1);
+			$("input[name=address2]").val(address2);
+			
+			$postSelect.hide();
+			
+		});
+
+		// input フォーカス外れた際
+		$input.on("change", function(){
+			$postSelect.show();
+		});
+		
+		// 初期表示
+		$postSelect.hide();
+		
+	});
+	
+});
+*/
+
+$(window).load(function(){
+	var u = new iipurasu.Util();
+	iipurasu.module.equalHeight(true);
+});

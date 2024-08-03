@@ -1,0 +1,513 @@
+/// <reference path="../typings/index.d.ts" />
+/// <reference path="validation-rules.ts"/>
+/// <reference path="character-set.ts"/>
+
+// JavaScript入力チェックエラー時の表示位置調整用変数
+var dispErrorObj;
+var validationJsErrorCount;
+
+// クライアント用のValidator定義ファイル
+// VOValidator定義書に記載したValidatorの実装と、Validatorに対するエラーメッセージを定義する
+(function (window) {
+    // Validatorの実装  
+    // 使用しないValidatorは常にtrueを返す実装にする
+    var methods = {
+        // requiredはjQuery Validation Pluginに用意されているメソッドを使用する。
+        // 'required': function (value, element, params) {
+        // },
+        'characterSet': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'numberFormat': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'digit': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'rangeCheck': function (value, element, params) {
+            // jQuery Validation Pluginにデフォルトで用意されているメソッドと名称が同じだとパラメータが渡ってこない
+            // rangeはデフォルトで用意されているのでメソッド名を変更
+            var minRange = params[6] - 0;
+            var maxRange = params[7] - 0;
+            return this.optional(element) || (value - 0 >= minRange && value <= maxRange);
+        },
+        'justLength': function (value, element, params) {
+            var justlength = params[1] - 0;
+            return this.optional(element) || (value.length === justlength);
+        },
+        'minLength': function (value, element, params) {
+            var minlength = params[2] - 0;
+            return this.optional(element) || (value.length >= minlength);
+        },
+        'maxLength': function (value, element, params) {
+            if(!$.isArray(params)){
+                return true;
+            }
+            var maxlength = params[3] - 0;
+            return this.optional(element) || (value.length <= maxlength);
+        },
+        'mask': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'dateFormat': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'codeFilterParam': function (value, element, params) {
+            // 実装不可
+            return true;
+        },
+        'fileSizeRange': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'halfKana': function (value, element, params) {
+            // ｡｢｣､･ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝﾞﾟ
+            return this.optional(element) || value.match(window.CharacterSet.halfKana);
+        },
+        'wideKana': function (value, element, params) {
+            // 。「」、・ァアィイゥウェエォオカガキギクグケゲコゴサザシジスズセゼソゾタダチヂッツヅテデトドナニヌネノハバパヒビピフブプヘベペホボポマミムメモャヤュユョヨラリルレロヮワヰヱヲンヴヵヶ゛゜ー‐－―−
+            return this.optional(element) || value.match(window.CharacterSet.wideKana);
+        },
+        'wideNum': function (value, element, params) {
+            // ０１２３４５６７８９
+            return this.optional(element) || value.match(window.CharacterSet.wideNum);
+        },
+        'halfAlpha': function (value, element, params) {
+            // ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+            return this.optional(element) || value.match(window.CharacterSet.halfAlpha);
+        },
+        'halfAlphaNum': function (value, element, params) {
+            // 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+            return this.optional(element) || value.match(window.CharacterSet.halfAlphaNum);
+        },
+        'wideAlphaNum': function (value, element, params) {
+            // ０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ
+            return this.optional(element) || value.match(window.CharacterSet.wideAlphaNum);
+        },
+        'JISX0208': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.JISX0208);
+        },
+        'JISX0213NoSurrogatePairs': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.JISX0213NoSurrogatePairs);
+        },
+        'JISX0213': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.JISX0213);
+        },
+        'halfAlphaNumSymbol': function (value, element, params) {
+            // 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~¥‾
+            return this.optional(element) || value.match(window.CharacterSet.halfAlphaNumSymbol);
+        },
+        'integerFormat': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'integerDigit': function (value, element, params) {
+            var real = (value.indexOf('-') == 0) ? params[4] - 0 + 1 : params[4] - 0;
+            var tmp = value.split('.');
+            return this.optional(element) || (tmp[0].match(/^\-*[1-9]+[0-9]*/) && tmp[0].length <= real && tmp[1] == undefined);
+        },
+        'mailAddress': function (value, element, params) {
+            return this.optional(element) || value.match(/^[0-9a-zA-Z０-９ａ-ｚＡ-Ｚ_\-\.\/\?!%&~+#\$'\*=\^`\{\|\}＿－．／？！％＆～＋＃＄’＊＝＾｀｛｜｝]{1,64}[@|＠][0-9a-zA-Z０-９ａ-ｚＡ-Ｚ_＿][0-9a-zA-Z０-９ａ-ｚＡ-Ｚ_.\-＿．－]{0,61}[\.．][0-9a-zA-Z０-９ａ-ｚＡ-Ｚ_\-＿－]+$/);
+        },
+        'comment': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.comment);
+        },
+        'halfNum': function (value, element, params) {
+            // 0123456789０１２３４５６７８９
+            return this.optional(element) || value.match(window.CharacterSet.halfNum);
+        },
+        'strictHalfNum': function (value, element, params) {
+            // 0123456789
+            return this.optional(element) || value.match(window.CharacterSet.strictHalfNum);
+        },
+        'phoneNumber': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/^0\d{9,10}$/);
+        },
+        'dete_yyyyMMdd': function (value, element, params) {
+            if (zen2han_all(value).match(/^[0-9]{8}$/)) {
+                var year = value.substring(0, 4) - 0;
+                var month = value.substring(4, 6) - 1;
+                var day = value.substring(6, 8) - 0;
+                var date = new Date(year, month, day);
+                return (year === date.getFullYear() && month === date.getMonth() && day === date.getDate());
+            }
+            else {
+                return this.optional(element);
+            }
+        },
+        'date_yyyy-MM-dd': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'code': function (value, element, params) {
+            // 実装不可
+            return true;
+        },
+        'flagNum': function (value, element, params) {
+            // 実装不可
+            return true;
+        },
+        'passwordFormat': function (value, element, params) {
+            return this.optional(element) || value.match(/^[0-9a-zA-Z_\-@.]{8,16}$/);
+        },
+        'oldPasswordFormat': function (value, element, params) {
+            return this.optional(element) || value.match(/^[0-9a-zA-Z_\-@.]{4,16}$/);
+        },
+        'passwordSize': function (value, element, params) {
+            return this.optional(element) || value.match(/^.{8,16}$/);
+        },
+        'passwordCharRequired': function (value, element, params) {
+            return this.optional(element) || value.match(/^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z]).*$/);
+        },
+        'passwordCharType': function (value, element, params) {
+            return this.optional(element) || value.match(/^[0-9a-zA-Z_\-@.]+$/);
+        },
+        'commentSingleLine': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.commentSingleLine);
+        },
+        'wideChar': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.wideChar);
+        },
+        'halfAndWideChar': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.halfAndWideChar);
+        },
+        'url': function (value, element, params) {
+            return this.optional(element) || value.match(/^(https?)(:\/\/[-_.!~*\\'()a-zA-Z0-9;\\/?:\\@&=+\\$,%#]+)$"/);
+        },
+        'mobilePhoneFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/((^(090|070)[0-9]{8}$)|(^080[1-9][0-9]{7}$))/);
+        },
+        'mobilePhoneFormatAndAll9': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/((^(090|070)[0-9]{8}$)|(^080[1-9][0-9]{7}$)|(^9{11}$))/);
+        },
+        'dateTimeFormat': function (value, element, params) {
+            // 実装不可
+            return true;
+        },
+        'halfNumSymbol': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.halfNumSymbol);
+        },
+        'wideHalfSpace': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.wideHalfSpace);
+        },
+        'wideHalfSpaceNextLine': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.wideHalfSpaceNextLine);
+        },
+        'wideCharAsterisk': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'wideCharSpaceAsterisk': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'asteriskOnlyOrAsteriskNone': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'phoneNumberOrAsteriskOnly': function (value, element, params) {
+            // 未使用
+            return true;
+        },
+        'halfAlphaNumSpace': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.halfAlphaNumSpace);
+        },
+        'wideKanaSpace': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.wideKanaSpace);
+        },
+        'wideCharSpace': function (value, element, params) {
+            return this.optional(element) || value.match(window.CharacterSet.wideCharSpace);
+        },
+        'dateMMFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/(^[1-9]$)|(^[0][1-9]$)|(^[1][0-2]$)/);
+        },
+        'dateDdFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/(^[1-9]$)|(^[0][1-9]$)|(^[1-2][0-9]$)|(^[3][0-1]$)/);
+        },
+        'halfDateMMFormat': function (value, element, params) {
+            return this.optional(element) || value.match(/(^[1-9]$)|(^[0][1-9]$)|(^[1][0-2]$)/);
+        },
+        'halfDateDdFormat': function (value, element, params) {
+            return this.optional(element) || value.match(/(^[1-9]$)|(^[0][1-9]$)|(^[1-2][0-9]$)|(^[3][0-1]$)/);
+        },
+        'dateMMFixedFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/(^[0][1-9]$)|(^[1][0-2]$)/);
+        },
+        'dateDdFixedFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/(^[0][1-9]$)|(^[1-2][0-9]$)|(^[3][0-1]$)/);
+        },
+        'birthYearFormat': function (value, element, params) {
+            return this.optional(element) || zen2han_all(value).match(/^(19|20)[0-9]{2}$/);
+        }
+    };
+    $.each(methods, function (key) {
+        $.validator.addMethod(key, this);
+    });
+    // エラーメッセージの定義
+    // メッセージ内のプレースホルダとValidator引数の対応は以下の通り
+    //
+    // {0}:項目論理名
+    // {1}:指定文字数
+    // {2}:最小文字数
+    // {3}:最大文字数
+    // {4}:整数部桁数
+    // {5}:小数部桁数
+    // {6}:最小値
+    // {7}:最大値
+    // {8}:コードID
+    // {9}:オプション1
+    // {10}:オプション2
+    // {11}:オプション3
+    // {12}:オプション4
+    // {13}:オプション5
+    // {14}:オプション6
+    // {15}:オプション7
+    // {16}:オプション8
+    // {17}:オプション9
+    // {18}:オプション10
+    // {19}:文字種別
+    // {20}:符号入力可否
+    // {21}:カンマ入力可否
+    // {22}:整数
+    // {23}:日付
+    // {24}:正規表現
+    // {25}:最小サイズ
+    // {26}:最大サイズ
+    // {27}:絞り込み条件名
+    // {28}:絞り込み条件値
+    $.extend($.validator.messages, {
+        'required': '{0}の入力がありません。',
+        'characterSet': '{0}は{19}のみ入力できます。',
+        'numberFormat': '{0}は数字のみ入力できます。',
+        'digit': '{0}は整数部 {4}桁以下, 小数部 {5}桁以下の数値のみ入力できます。',
+        'rangeCheck': '{0}は{6}以上, {7}以下の数字のみ入力できます。',
+        'justLength': '{0}は{1}文字です。',
+        'minLength': '{0}は{2}文字以上で入力してください。',
+        'maxLength': '{0}は{3}文字以下で入力してください。',
+        'mask': '入力形式が異なります。{0}を入力してください。',
+        'dateFormat': '{0}は書式 : {23}の日付のみ入力できます。',
+        'codeFilterParam': '{0}は不正な値です。',
+        'fileSizeRange': '{0}はサイズ{25}バイト以上, {26}バイト以下のファイルのみ指定できます。',
+        'halfKana': '{0}は半角カナのみ入力できます。',
+        'wideKana': '{0}は全角カナのみ入力できます。',
+        'wideNum': '{0}は全角数字のみ入力できます。',
+        'halfAlpha': '{0}は半角英字のみ入力できます。',
+        'halfAlphaNum': '{0}は半角英数字のみ入力できます。',
+        'wideAlphaNum': '{0}は全角英数字のみ入力できます。',
+        'JISX0208': '{0}は全角文字（旧字や機種依存文字を除く）のみ入力できます。',
+        'JISX0213NoSurrogatePairs': '{0}は全角文字のみ入力できます。',
+        'JISX0213': '{0}は全角文字のみ入力できます。',
+        'halfAlphaNumSymbol': '{0}は半角英数記号のみ入力できます。',
+        'integerFormat': '{0}は数字のみ入力してください。',
+        'integerDigit': '{0}は{4}桁以下の数字のみ入力してください。',
+        'mailAddress': '入力形式が異なります。{0}を入力してください。',
+        'comment': '{0}は全角文字（旧字や機種依存文字を除く）のみ入力できます。',
+        'halfNum': '{0}は半角数字のみ入力できます。',
+        'strictHalfNum': '{0}は半角数字のみ入力できます。',
+        'phoneNumber': '入力形式が異なります。{0}を入力してください。',
+        'dete_yyyyMMdd': '{0}は書式 :YYYYMMDD形式の日付のみ入力できます。',
+        'date_yyyy-MM-dd': '{0}は書式 :YYYY-MM-DD形式の日付のみ入力できます。',
+        'code': '{0}は不正な値です。',
+        'flagNum': '{0}はフラグ用半角数字のみ入力できます。',
+        'passwordFormat': '{0}は8文字以上, 16文字以下の半角英数字のみ入力できます。',
+        'oldPasswordFormat': '{0}は8文字以上, 16文字以下の半角英数字のみ入力できます。',
+        'passwordSize': '{2}～{3}文字の半角英数字で設定してください。',
+        'passwordCharRequired': '英大文字・英小文字・数字それぞれを最低1文字ずつ含む必要があります。',
+        'passwordCharType': '半角英数字で設定してください。',
+        'commentSingleLine': '{0}は全角文字（旧字や機種依存文字を除く）のみ入力できます。',
+        'wideChar': '{0}は全角文字（旧字や機種依存文字を除く）のみ入力できます。',
+        'halfAndWideChar': '{0}は使用可能文字のみ入力できます。',
+        'url': '{0}はURL形式のみ入力できます。',
+        'mobilePhoneFormat': '入力形式が異なります。{0}を入力してください。',
+        'mobilePhoneFormatAndAll9': '入力形式が異なります。{0}を入力してください。',
+        'dateTimeFormat': '{0}は書式 :yyyyMMddHHmmssSSS形式の日付のみ入力できます。',
+        'halfNumSymbol': '{0}は半角数字記号のみ入力できます。',
+        'wideHalfSpace': '{0}は使用可能文字のみ入力できます。',
+        'wideHalfSpaceNextLine': '{0}は使用可能文字のみ入力できます。',
+        'wideCharAsterisk': '{0}は使用可能文字のみ入力できます。',
+        'wideCharSpaceAsterisk': '{0}は使用可能文字のみ入力できます。',
+        'asteriskOnlyOrAsteriskNone': '{0}は使用可能文字のみ入力できます。',
+        'phoneNumberOrAsteriskOnly': '{0}は使用可能文字のみ入力できます。',
+        'halfAlphaNumSpace': '{0}は半角英数字スペースのみ入力できます。',
+        'wideKanaSpace': '{0}は全角カナのみ入力できます。',
+        'wideCharSpace': '{0}は全角文字（旧字や機種依存文字を除く）のみ入力できます。',
+        'dateMMFormat': '{0}は1～12のみ入力できます。',
+        'halfDateMMFormat': '{0}は半角数字1～12のみ入力できます。',
+        'dateDdFormat': '{0}は1～31のみ入力できます。',
+        'halfDateDdFormat': '{0}は半角数字1～31のみ入力できます。',
+        'dateMMFixedFormat': '{0}は01～12のみ入力できます。',
+        'dateDdFixedFormat': '{0}は01～31のみ入力できます。',
+        'birthYearFormat': '{0}はYYYY形式のみ入力できます。'
+    });
+    // プラグインのtype="email"に対するバリデーションを無効(常にOK)にする  
+    $.extend($.validator.methods, {
+      email: function (value, element) {
+              return true;
+      }
+    });
+    var Validator = (function () {
+        var v;
+        var f;
+        var groupCount;
+        var isError;
+        // コンストラクタ
+        var Validator = function (form) {
+            f = form;
+            v = f.validate({
+                'rules': rules,
+                // サブミット時に自動で入力チェックを実行しない
+                'onsubmit': false,
+                // フォーカスアウト時に自動で入力チェックを実行しない
+                'onfocusout': false,
+                // キーアップ時に自動で入力チェックを実行しない
+                'onkeyup': false,
+                // クリック時に自動で入力チェックを実行しない
+                'onclick': false,
+                // エラー時に「エラーメッセージ」と「入力項目」に設定されるクラス
+                'errorClass': 'validatorTarget',
+                // エラーメッセージのタグ
+                'errorElement': 'span',
+                // 入力チェックの除外条件
+                'ignore': '[type="hidden"]',
+                // エラーメッセージを囲むタグ
+                'wrapper': 'p',
+                // エラーメッセージの表示位置設定
+                'errorPlacement': function (error, element) {
+                    error.addClass('errorTxt');
+                    // 入力項目の直前に配置
+                    var label = 'label[for=\"' + $(element).attr('name')+ '\"]';
+                    if((label.length)){
+                        error.insertAfter($(label));
+                    } else {
+                        element.before(error);
+                    }
+                },
+                // エラー時に任意の処理を実行する
+                'highlight': function (element, errorClass, validClass) {
+                    // 親タグにerrorCellクラスを追加
+                    $(element).closest('td').addClass('errorCell');
+                    var div = $(element).closest('div.inputBox');
+                    var groupId = getGroupId(div);
+                    if (groupId != undefined) {
+                        isError[groupId] = true;
+                    }
+                    if (validationJsErrorCount == 0) {
+                        dispErrorObj = $(element).closest('td').closest('tr');
+                    } else if (validationJsErrorCount == 1) {
+                        $.errorMsgArea($('#kobetsuErrorExistMsg').val(), 'errorMessageArea', 'errorMessageArea', false, 'kobetsuErrorExistMsg');
+                        dispErrorObj = $('#errorMessageArea');
+                    }
+                    ++validationJsErrorCount;
+                },
+                // OK時にhighlightで設定した変更を元に戻す
+                'unhighlight': function (element, errorClass, validClass) {
+                    // 親タグからerrorCellクラスを削除
+                    var div = $(element).closest('div.inputBox');
+                    var groupId = getGroupId(div);
+                    if (groupId == undefined || (groupId != undefined && !isError[groupId])) {
+                        $(element).closest('td').removeClass('errorCell');
+                    }
+                }
+            });
+            // VOの要素に対するValidationルールを設定する。
+            f.find('input, select, textarea').each(function () {
+                var element = $(this);
+                if ($cf.isNotEmpty(element.attr('name'))) {
+                    var names = element.attr('name').split('.');
+                    if (names.length > 1) {
+                        var name = names[names.length - 1];
+                        if (rules[name] != undefined) {
+                            var rule = rules[name];
+                            Object.keys(rule).forEach(function (key) {
+                                var tmp = {};
+                                tmp[key] = rule[key];
+                                element.rules('add', tmp);
+                            });           
+                        }
+                    }
+                }
+            }); 
+        };
+        // メソッド
+        Validator.prototype = {
+            // 入力チェックを実行する。入力チェックOKの場合はtrue、NGの場合はfalseを返す。
+            'validate': function () {
+                isError = {};
+                groupCount = 0;
+                dispErrorObj = undefined;
+                validationJsErrorCount = 0;
+                $.clearAllErrorMsgArea('errorMessageArea');
+                return f.valid();
+            },
+            // 指定したフィールドを必須項目に設定する。フィールドは配列で複数指定可能。
+            'required': function (field) {
+                var fields = (field instanceof Array) ? field : [field];
+                fields.forEach(function (field) {
+                    var names = field.attr('name').split('.');
+                    var name;
+                    if (names.length > 1) {
+                        name = names[names.length - 1];
+                    } else {
+                        name = names[0];
+                    }
+                    field.rules('add', { 'required': requiredParams[name] });
+                });
+            },
+            // 指定したフィールドの必須属性を解除する。フィールドは配列で複数指定可能。
+            'optional': function (field) {
+                var fields = (field instanceof Array) ? field : [field];
+                fields.forEach(function (field) {
+                    field.rules('remove', 'required');
+                });
+            },
+            
+            // フォーム内1項目だけ、受け取ったルールでチェックを行う（ラジオボタン非対応）
+            'validateElement': function(selector,rule){
+                var $elementCollection = $(selector);        
+                // 取得したエレメントの件数をチェック
+                if ($elementCollection.length === 1){
+                    //実行時にフォーム内のエラーは全てクリアされる。
+                    isError = {};
+                    groupCount = 0;
+                    dispErrorObj = undefined;
+                    validationJsErrorCount = 0;
+                    $.clearAllErrorMsgArea('errorMessageArea');
+                    // ルールの反映
+                    $elementCollection.rules("add", rule);
+                    //　チェック
+                    var validError = v.element(selector);
+                    //　ルール戻し
+                    var ruleName = Object.keys(rule)
+                    $elementCollection.rules("remove", ruleName[0]);
+                    return validError; 
+                }
+                else{
+                    // エレメントが1件以外の場合はvalidate.elementが扱えないため
+                    console.log('Please select one item from selector');
+                    return true;
+                }
+            }
+                
+        };
+        // 内部関数
+        // divで纏めた入力項目に一意なグループIDを発行する
+        function getGroupId(div) {
+            var groupId;
+            if (div.length > 0) {
+                groupId = div.data('groupId');
+                if (groupId == undefined) {
+                    groupId = ++groupCount;
+                    div.data('groupId', groupId);
+                }
+            }
+            return groupId;
+        }
+        return Validator;
+    })();
+    window.Validator = Validator;
+})(window);
